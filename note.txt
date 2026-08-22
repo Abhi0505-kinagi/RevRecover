@@ -1,0 +1,85 @@
+========================================================================
+                                     HOLISTIC REVENUE RECOVERY ARCHITECTURE
+                       ========================================================================
+
+    [1] Checkout / Subscriptions / Invoices (Client)
+             │
+             ▼ [2] Webhook / Failure Event (`payment.failed`, `subscription.pending`)
+    ┌───────────────────────────┐
+    │  [3] Ingress Server &     │
+    │  HMAC Signature Verifier  │
+    └─────────────┬─────────────┘
+                  │
+                  ▼
+    ┌─────────────────────────────────────────────────────────────┐
+    │ [4] MULTI-ENGINE INQUEST & ERROR INSPECTION SEQUENCE        │
+    │  • Module 1: Event Identity & Structure Verification        │
+    │  • Module 2: Error Source & Reason Extractor                │
+    │  • Module 3: Stage Checkpoint Detection (`payment_step`)    │
+    │  • Module 4: DPDP PII Sanitizer & Context Masker            │
+    │  • Module 5: Late-Authorization Debit Inquest               │
+    │  • Module 6: Fraud & Risk Signal Evaluator                  │
+    └─────────────────────────────┬───────────────────────────────┘
+                                  │
+                                  ▼
+                     ┌───────────────────────────┐
+                     │ [5] Weighted Triage Gate  │
+                     │     t(v) = ∑(w_i · S_i)   │
+                     └─────────────┬─────────────┘
+                                   │
+                ┌──────────────────┴──────────────────┐
+                ▼ [Malicious / Hard Terminal Fail]    ▼ [Safe / Recoverable]
+   ┌───────────────────────────┐         ┌───────────────────────────┐
+   │ [6] Terminal DLQ Sink     │         │ [7] Decision Gate:        │
+   │ (Zero-Crypto Short-Circuit│         │     Is Funds Debited?     │
+   │  0 Retries, Alert Merchant│         └─────────────┬─────────────┘
+   └───────────────────────────┘                       │
+                                 ┌─────────────────────┴─────────────────────┐
+                                 ▼ [Late Auth Captured: YES]                 ▼ [Funds Not Debited / Recoverable]
+                    ┌───────────────────────────┐               ┌───────────────────────────┐
+                    │ [16] Auto-Reconcile &     │               │ [8] Gateway Health        │
+                    │      Order Fulfillment    │               │     Monitor & Telemetry   │
+                    └─────────────┬─────────────┘               └─────────────┬─────────────┘
+                                  │                                           │
+                                  ▼                                           ▼ [Gateway Stalled / Failed]
+                    ┌───────────────────────────┐               ┌───────────────────────────┐
+                    │ [9] Persistent Database & │               │ [13] Idempotent DAG-TQ    │
+                    │     Recovery Ledger (DB)  │               │      Encapsulation        │
+                    └───────────────────────────┘               └─────────────┬─────────────┘
+                                  ▲                                           │
+                                  │ [17] Read Stalled Invoices                ▼
+                                  │                            ┌───────────────────────────┐
+                                  │                            │ [11] BullMQ State Machine │
+                                  │                            │      & Dead-Letter Queue  │
+                                  │                            └─────────────┬─────────────┘
+                                  │                                           │
+                                  │ [Gateway Alive]                           ▼ [Max Retries Exhausted: R = 3]
+                     ┌────────────┴──────────────┐             ┌───────────────────────────┐
+                     │ [10] Recovery             │             │ [14] Admin Review &       │
+                     │      Orchestrator         │             │      Merchant Workspace   │
+                     └────────────┬──────────────┘             └───────────────────────────┘
+                                  │
+                                  ├───────────────────────────────┐
+                                  ▼                               ▼
+                     ┌───────────────────────────┐   ┌───────────────────────────┐
+                     │ [12] PID Concurrency      │   │ [18] Stage-Aware          │
+                     │      Governor             │   │      Autonomous Recovery  │
+                     │      (Anti-Thundering)    │   │      • Route A(Silent 5XX)│
+                     └───────────────────────────┘   │      • Route B (Agent UPI)│
+                                                     └─────────────┬─────────────┘
+                                                                   │
+                                                                   ▼ (On Success)
+                                                     [16] Auto-Reconcile Module
+
+
+[ T0: 10:00 AM ] Customer attempts payment ───> Times out at Bank.
+[ T1: 10:01 AM ] Merchant system marks order "FAILED". Customer sees "Payment Failed".
+[ T2: 10:45 AM ] Bank clears the backlog ───> Razorpay updates status to "CAPTURED".
+                                   │
+                                   ▼
+                    [ RECOVERY ENGINE INTERVENTION ]
+ ┌─────────────────────────────────┼─────────────────────────────────┐
+ ▼                                 ▼                                 ▼
+[1. Kill Pending Dunning]  [2. Flip Order in OMS]      [3. Customer Reassurance Nudge]
+• Cancels BullMQ retries   • Emits `order.recovered`   • WhatsApp: "Your payment cleared!
+• Deactivates backup link  • Status: FAILED ──> PAID     Order #1042 is confirmed."

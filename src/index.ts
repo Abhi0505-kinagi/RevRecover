@@ -3,6 +3,9 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { connectDB } from './config/db';
 import webhookRoutes from './routes/webhookRoutes';
+import checkoutRoutes from './routes/checkoutRoutes';
+import invoiceRoutes from './routes/invoiceRoutes';
+import metricsRoutes from './routes/metricsRoutes';
 import './config/redis';
 import './queues/recoveryQueues';
 
@@ -21,7 +24,9 @@ app.use(
 );
 
 app.use('/api/webhooks', webhookRoutes);
-
+app.use('/api/checkout', checkoutRoutes);
+app.use('/api/invoices', invoiceRoutes);
+app.use('/api/metrics', metricsRoutes);
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });

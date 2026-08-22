@@ -115,7 +115,7 @@ export const routeBWorker = new Worker(
           auditTrail: {
             stage: 'AGENTIC_DUNNING',
             action: 'Dispatched 1-click UPI recovery nudge.',
-            details: { linkUrl, messageSnippet: message.substring(0, 80) },
+            details: { linkUrl, messageSnippet: message.text.substring(0, 80) },
             timestamp: new Date(),
           },
         },
