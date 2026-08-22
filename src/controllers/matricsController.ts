@@ -6,22 +6,37 @@ import { routeAQueue, routeBQueue } from '../queues/recoveryQueues';
 
 export const getSystemMetrics = async (_req: Request, res: Response): Promise<void> => {
   try {
-    // 1. Transaction Recovery Ledger Aggregations
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+
+    // 1. Holistic Aggregate Metrics
     const ledgerStats = await RecoveryLedger.aggregate([
       {
         $group: {
           _id: null,
-          totalAtRisk: { $sum: '$amount' },
+          grossAtRisk: { $sum: '$amount' },
           totalRecovered: { $sum: '$recoveredAmount' },
           totalTransactions: { $sum: 1 },
-          routeACount: {
-            $sum: { $cond: [{ $eq: ['$assignedRoute', 'ROUTE_A'] }, 1, 0] },
+          
+          // Route segmentation
+          routeAAmount: {
+            $sum: { $cond: [{ $eq: ['$assignedRoute', 'ROUTE_A'] }, '$amount', 0] },
           },
-          routeBCount: {
-            $sum: { $cond: [{ $eq: ['$assignedRoute', 'ROUTE_B'] }, 1, 0] },
+          routeBAmount: {
+            $sum: { $cond: [{ $eq: ['$assignedRoute', 'ROUTE_B'] }, '$amount', 0] },
           },
-          routeCCount: {
-            $sum: { $cond: [{ $eq: ['$assignedRoute', 'ROUTE_C'] }, 1, 0] },
+          routeCAmount: {
+            $sum: { $cond: [{ $eq: ['$assignedRoute', 'ROUTE_C'] }, '$amount', 0] },
+          },
+
+          // State segmentation
+          inFlightAmount: {
+            $sum: {
+              $cond: [
+                { $in: ['$status', ['PENDING', 'SCHEDULED_RETRY', 'DUNNING_SENT']] },
+                '$amount',
+                0,
+              ],
+            },
           },
           recoveredCount: {
             $sum: { $cond: [{ $eq: ['$status', 'RECOVERED'] }, 1, 0] },
@@ -29,74 +44,85 @@ export const getSystemMetrics = async (_req: Request, res: Response): Promise<vo
           terminalDlqCount: {
             $sum: { $cond: [{ $eq: ['$status', 'TERMINAL_DLQ'] }, 1, 0] },
           },
+
+          // Mature cohort calculation (created > 15 mins ago)
+          matureGrossAtRisk: {
+            $sum: {
+              $cond: [{ $lte: ['$createdAt', fifteenMinutesAgo] }, '$amount', 0],
+            },
+          },
+          matureRecovered: {
+            $sum: {
+              $cond: [{ $lte: ['$createdAt', fifteenMinutesAgo] }, '$recoveredAmount', 0],
+            },
+          },
         },
       },
     ]);
 
     const stats = ledgerStats[0] || {
-      totalAtRisk: 0,
+      grossAtRisk: 0,
       totalRecovered: 0,
       totalTransactions: 0,
-      routeACount: 0,
-      routeBCount: 0,
-      routeCCount: 0,
+      routeAAmount: 0,
+      routeBAmount: 0,
+      routeCAmount: 0,
+      inFlightAmount: 0,
       recoveredCount: 0,
       terminalDlqCount: 0,
+      matureGrossAtRisk: 0,
+      matureRecovered: 0,
     };
 
-    const recoveryRate = stats.totalAtRisk > 0 
-      ? Number(((stats.totalRecovered / stats.totalAtRisk) * 100).toFixed(1))
+    // Addressable Pool = Route A + Route B (excluding Route C fraud/terminal failures)
+    const addressableOpportunity = stats.routeAAmount + stats.routeBAmount;
+
+    // Financial KPI Formulations
+    const grossRecoveryRate = stats.grossAtRisk > 0
+      ? Number(((stats.totalRecovered / stats.grossAtRisk) * 100).toFixed(1))
       : 0;
 
-    // 2. B2B Invoices & PTP Summary
-    const invoiceStats = await Invoice.aggregate([
-      {
-        $group: {
-          _id: '$status',
-          count: { $sum: 1 },
-          totalAmount: { $sum: '$amount' },
-        },
-      },
-    ]);
+    const netAddressableOpportunityRate = addressableOpportunity > 0
+      ? Number(((stats.totalRecovered / addressableOpportunity) * 100).toFixed(1))
+      : 0;
 
-    // 3. Live BullMQ Queue Depths
+    const matureCohortRate = stats.matureGrossAtRisk > 0
+      ? Number(((stats.matureRecovered / stats.matureGrossAtRisk) * 100).toFixed(1))
+      : 0;
+
+    // 2. Real-Time Queues & Rails
     const [routeAWaiting, routeBWaiting] = await Promise.all([
       routeAQueue.getWaitingCount(),
       routeBQueue.getWaitingCount(),
     ]);
-
-    // 4. Real-Time Circuit Breaker Rail Status
     const railStatuses = await CircuitBreakerService.getCheckoutRailStatus();
-
-    // 5. Recent 8 Ledger Records with Full Audit Trails
-    const recentEvents = await RecoveryLedger.find()
-      .sort({ createdAt: -1 })
-      .limit(8)
-      .select('paymentId amount assignedRoute status errorReason auditTrail createdAt');
+    const invoiceStats = await Invoice.aggregate([
+      { $group: { _id: '$status', count: { $sum: 1 }, totalAmount: { $sum: '$amount' } } },
+    ]);
 
     res.status(200).json({
       timestamp: new Date().toISOString(),
-      financials: {
-        totalRevenueAtRiskInRupees: stats.totalAtRisk / 100,
-        totalRecoveredInRupees: stats.totalRecovered / 100,
-        recoverySuccessRatePercentage: recoveryRate,
-        totalTransactionsIngested: stats.totalTransactions,
-      },
-      routesBreakdown: {
-        routeA_Silent5XX: stats.routeACount,
-        routeB_AgenticDunning: stats.routeBCount,
-        routeC_TerminalDLQ: stats.routeCCount,
-        activeQueueLoad: {
-          routeA_WaitingJobs: routeAWaiting,
-          routeB_WaitingJobs: routeBWaiting,
+      financialKPIs: {
+        grossRevenueAtRisk: stats.grossAtRisk / 100,
+        totalRecovered: stats.totalRecovered / 100,
+        inFlightWorkingCapital: stats.inFlightAmount / 100,
+        unrecoverableTerminalRisk: stats.routeCAmount / 100,
+        rates: {
+          grossRecoveryRatePercentage: grossRecoveryRate,
+          netAddressableOpportunityRatePercentage: netAddressableOpportunityRate,
+          matureCohortRatePercentage_T15m: matureCohortRate,
         },
       },
+      workloadDistribution: {
+        routeA_Silent5XX_Amount: stats.routeAAmount / 100,
+        routeB_AgenticDunning_Amount: stats.routeBAmount / 100,
+        routeC_TerminalDLQ_Amount: stats.routeCAmount / 100,
+        liveQueueDepths: { routeA_Waiting: routeAWaiting, routeB_Waiting: routeBWaiting },
+      },
+      circuitBreakerStatus: railStatuses,
       b2bReceivables: invoiceStats,
-      circuitBreakerRails: railStatuses,
-      recentActivityLedger: recentEvents,
     });
   } catch (error: any) {
-    console.error('Error fetching metrics:', error);
     res.status(500).json({ error: error.message });
   }
 };

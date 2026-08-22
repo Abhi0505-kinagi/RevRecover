@@ -3,19 +3,19 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Autonomous Revenue Recovery Engine - Deep Inspection Visualizer</title>
+  <title>Razorpay Autonomous Revenue Recovery - Production Simulator</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
   <style>
-    body { font-family: 'Inter', sans-serif; background-color: #070a13; color: #e2e8f0; margin: 0; }
+    body { font-family: 'Inter', sans-serif; background-color: #060911; color: #e2e8f0; margin: 0; }
     .mono { font-family: 'JetBrains Mono', monospace; }
-    canvas { display: block; background: radial-gradient(circle at 50% 50%, #0f172a 0%, #050811 100%); }
+    canvas { display: block; background: radial-gradient(circle at 50% 50%, #0d1527 0%, #050811 100%); }
   </style>
 </head>
 <body class="flex flex-col min-h-screen">
 
-  <!-- Header & Telemetry Bar -->
+  <!-- Header & Cohort Telemetry Deck -->
   <header class="border-b border-slate-800 bg-slate-950/90 backdrop-blur px-6 py-4 sticky top-0 z-50">
     <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
       <div>
@@ -24,52 +24,50 @@
           <h1 class="text-lg font-bold text-white tracking-wide">Razorpay Autonomous Recovery Engine</h1>
           <span id="statusBadge" class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] mono px-2 py-0.5 rounded font-semibold uppercase">RUNNING</span>
         </div>
-        <p class="text-xs text-slate-400 mono">Real-Time Sub-Stage Particle & Circuit Breaker Simulator</p>
+        <p class="text-xs text-slate-400 mono">Cohort Accounting & Smart Rail Bridging Simulator</p>
       </div>
 
-      <!-- Real-time Financial Metrics -->
+      <!-- Financial Cohort Metrics -->
       <div class="flex flex-wrap gap-3 text-xs mono">
         <div class="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2">
-          <span class="text-slate-400 text-[10px] block">TOTAL INGESTED</span>
-          <p id="kpi-total" class="text-sm font-bold text-white">0</p>
+          <span class="text-slate-400 text-[10px] block">GROSS AT RISK</span>
+          <p id="kpi-gross-risk" class="text-sm font-bold text-rose-400">₹0</p>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2">
-          <span class="text-slate-400 text-[10px] block">REVENUE AT RISK</span>
-          <p id="kpi-risk" class="text-sm font-bold text-rose-400">₹0</p>
+          <span class="text-slate-400 text-[10px] block">IN-FLIGHT WORKING CAP</span>
+          <p id="kpi-inflight" class="text-sm font-bold text-amber-400">₹0</p>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2">
-          <span class="text-slate-400 text-[10px] block">RECOVERED REVENUE</span>
+          <span class="text-slate-400 text-[10px] block">NET RECOVERED</span>
           <p id="kpi-recovered" class="text-sm font-bold text-emerald-400">₹0</p>
         </div>
-        <div class="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2">
-          <span class="text-slate-400 text-[10px] block">RECOVERY RATE</span>
-          <p id="kpi-rate" class="text-sm font-bold text-cyan-400">0.0%</p>
+        <div class="bg-slate-900 border border-cyan-900/40 rounded-lg px-3 py-2">
+          <span class="text-cyan-400 text-[10px] block">AOR (NET CONVERSION)</span>
+          <p id="kpi-aor" class="text-sm font-bold text-cyan-300">0.0%</p>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2">
-          <span class="text-slate-400 text-[10px] block">38s BREAKER (HDFC)</span>
-          <p id="kpi-breaker" class="text-sm font-bold text-emerald-400">HEALTHY</p>
+          <span class="text-slate-400 text-[10px] block">GROSS RATE (ALL)</span>
+          <p id="kpi-gross-rate" class="text-sm font-bold text-slate-300">0.0%</p>
         </div>
       </div>
     </div>
   </header>
 
-  <!-- Main Canvas Playground -->
+  <!-- Main Workspace -->
   <main class="flex-1 max-w-7xl w-full mx-auto p-4 flex flex-col gap-4">
     
-    <!-- Control Deck -->
+    <!-- Controls Bar -->
     <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
-      
-      <!-- Primary Simulation Controls -->
       <div class="flex items-center gap-2">
-        <button id="btnPlayPause" onclick="togglePlayPause()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-2 transition active:scale-95">
-          <span>⏸</span> Pause
+        <button id="btnPlayPause" onclick="togglePlayPause()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition active:scale-95">
+          ⏸ Pause
         </button>
         <button onclick="resetSimulation()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold px-3 py-2 rounded-lg transition active:scale-95">
           🔄 Reset State
         </button>
       </div>
 
-      <!-- Edge Case Injections -->
+      <!-- Injection Triggers -->
       <div class="flex flex-wrap items-center gap-2 text-xs font-semibold">
         <button onclick="injectEvent('ROUTE_A')" class="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 px-3 py-2 rounded-lg transition active:scale-95">
           + 502 Blip (Route A)
@@ -78,13 +76,13 @@
           + Low Balance (Route B)
         </button>
         <button onclick="injectEvent('ROUTE_C')" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 px-3 py-2 rounded-lg transition active:scale-95">
-          + Fraud Check (Route C)
+          + Fraud Reject (Route C)
         </button>
         <button onclick="injectEvent('LATE_AUTH')" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-3 py-2 rounded-lg transition active:scale-95">
           + Late Captured Auth
         </button>
         <button onclick="tripBreaker()" class="bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30 px-3 py-2 rounded-lg transition active:scale-95">
-          ⚡ Trip 38s Breaker
+          ⚡ Trip 38s Breaker (HDFC)
         </button>
       </div>
 
@@ -101,69 +99,9 @@
       <canvas id="flowCanvas" width="1240" height="560" class="w-full"></canvas>
     </div>
 
-    <!-- Micro-Stage Architecture Breakdown Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
-      
-      <!-- Route A Breakdown -->
-      <div class="bg-slate-900/80 border border-cyan-900/40 rounded-xl p-3">
-        <div class="flex items-center gap-2 mb-2">
-          <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
-          <h2 class="font-bold text-cyan-300">Route A: Silent Retry Rail</h2>
-        </div>
-        <ol class="space-y-1 text-slate-400 mono text-[11px] list-decimal list-inside">
-          <li>5XX / Gateway timeout triage</li>
-          <li>BullMQ exponential backoff (1m $\rightarrow$ 2m $\rightarrow$ 5m)</li>
-          <li>Inquest check (`verifyLateAuth`)</li>
-          <li>Max $R=3$ then sever to DLQ</li>
-        </ol>
-      </div>
-
-      <!-- Route B Breakdown -->
-      <div class="bg-slate-900/80 border border-amber-900/40 rounded-xl p-3">
-        <div class="flex items-center gap-2 mb-2">
-          <span class="w-2 h-2 rounded-full bg-amber-400"></span>
-          <h2 class="font-bold text-amber-300">Route B: Agentic Dunning</h2>
-        </div>
-        <ol class="space-y-1 text-slate-400 mono text-[11px] list-decimal list-inside">
-          <li>DPDP PII stripping & masking</li>
-          <li>Gemini 2.5 Hinglish dunning agent</li>
-          <li>1-Click dynamic UPI link generation</li>
-          <li>Meta HSM WhatsApp dispatch</li>
-        </ol>
-      </div>
-
-      <!-- Route C Breakdown -->
-      <div class="bg-slate-900/80 border border-rose-900/40 rounded-xl p-3">
-        <div class="flex items-center gap-2 mb-2">
-          <span class="w-2 h-2 rounded-full bg-rose-400"></span>
-          <h2 class="font-bold text-rose-300">Route C: Terminal DLQ Sink</h2>
-        </div>
-        <ol class="space-y-1 text-slate-400 mono text-[11px] list-decimal list-inside">
-          <li>Terminal failure / risk detection</li>
-          <li>Short-circuit with 0 auto-retries</li>
-          <li>Immutable MongoDB audit write</li>
-          <li>Merchant KYC/card update alert</li>
-        </ol>
-      </div>
-
-      <!-- Late Auth Breakdown -->
-      <div class="bg-slate-900/80 border border-emerald-900/40 rounded-xl p-3">
-        <div class="flex items-center gap-2 mb-2">
-          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-          <h2 class="font-bold text-emerald-300">Late-Auth Reconciler</h2>
-        </div>
-        <ol class="space-y-1 text-slate-400 mono text-[11px] list-decimal list-inside">
-          <li>Bank clears delayed payment</li>
-          <li>Kill pending BullMQ retry jobs</li>
-          <li>Flip OMS state (`FAILED` $\rightarrow$ `PAID`)</li>
-          <li>WhatsApp reassurance to customer</li>
-        </ol>
-      </div>
-    </div>
-
     <!-- Live Event Log Console -->
     <div class="bg-black/80 border border-slate-900 rounded-xl p-3 mono text-[11px] h-28 overflow-y-auto" id="logConsole">
-      <div class="text-slate-500">[SYSTEM READY] Listening for Razorpay webhook payloads and mandate triggers...</div>
+      <div class="text-slate-500">[SYSTEM READY] Engine active with Cohort Accounting & Intent Bridging enabled...</div>
     </div>
   </main>
 
@@ -171,30 +109,25 @@
     const canvas = document.getElementById('flowCanvas');
     const ctx = canvas.getContext('2d');
 
-    // Architecture Topology Nodes (Coordinates on 1240x560 canvas)
     const nodes = {
-      ingress:   { x: 50,  y: 260, w: 120, h: 54, title: "1. Webhook Ingress", subtitle: "HMAC & Redis Idempotency", color: "#38bdf8" },
-      triage:    { x: 260, y: 260, w: 130, h: 54, title: "2. Error Triage Gate", subtitle: "Multi-Engine Inspection", color: "#818cf8" },
-      
-      // Execution Rail Nodes
-      routeA:    { x: 540, y: 80,  w: 150, h: 54, title: "Route A: BullMQ Queue", subtitle: "Silent 1m-2m-5m Retries", color: "#06b6d4" },
-      routeB:    { x: 540, y: 190, w: 150, h: 54, title: "Route B: AI Dunning", subtitle: "Gemini Hinglish & UPI Link", color: "#f59e0b" },
-      routeC:    { x: 540, y: 330, w: 150, h: 54, title: "Route C: Short-Circuit", subtitle: "0 Retries (Terminal DLQ)", color: "#f43f5e" },
-      lateAuth:  { x: 540, y: 440, w: 150, h: 54, title: "Late-Auth Inquest", subtitle: "Background Reconciler", color: "#10b981" },
-
-      // Sinks
-      reconcile: { x: 920, y: 190, w: 160, h: 54, title: "Recovery Ledger (DB)", subtitle: "Order Paid & OMS Sync", color: "#10b981" },
-      dlqSink:   { x: 920, y: 330, w: 160, h: 54, title: "Terminal DLQ Sink", subtitle: "Merchant Manual Review", color: "#e11d48" }
+      ingress:   { x: 50,  y: 260, w: 120, h: 54, title: "1. Webhook Ingress", subtitle: "HMAC & Idempotency", color: "#38bdf8" },
+      triage:    { x: 260, y: 260, w: 130, h: 54, title: "2. Triage Gate", subtitle: "AOR Categorization", color: "#818cf8" },
+      routeA:    { x: 540, y: 80,  w: 150, h: 54, title: "Route A: BullMQ", subtitle: "1m→2m→5m Retries", color: "#06b6d4" },
+      routeB:    { x: 540, y: 190, w: 150, h: 54, title: "Route B: Agentic", subtitle: "Hinglish UPI Intent", color: "#f59e0b" },
+      routeC:    { x: 540, y: 330, w: 150, h: 54, title: "Route C: Non-Addressable", subtitle: "Terminal Fraud/KYC", color: "#f43f5e" },
+      lateAuth:  { x: 540, y: 440, w: 150, h: 54, title: "Late-Auth Inquest", subtitle: "Auto-Reconcile", color: "#10b981" },
+      reconcile: { x: 920, y: 190, w: 160, h: 54, title: "Recovery Ledger", subtitle: "Order Paid & OMS Sync", color: "#10b981" },
+      dlqSink:   { x: 920, y: 330, w: 160, h: 54, title: "Terminal DLQ Sink", subtitle: "Admin Escalation", color: "#e11d48" }
     };
 
     let isRunning = true;
-    let totalIngested = 0;
-    let totalRiskPaise = 0;
+    let grossRiskPaise = 0;
+    let addressableRiskPaise = 0;
+    let inFlightPaise = 0;
     let totalRecoveredPaise = 0;
     let breakerTripped = false;
     let breakerCountdown = 0;
     let particles = [];
-    let trafficRate = 2;
 
     class Packet {
       constructor(type, amount, label) {
@@ -270,11 +203,13 @@
       }
 
       onComplete() {
+        inFlightPaise = Math.max(0, inFlightPaise - this.amount);
+
         if (this.type === 'ROUTE_A' || this.type === 'ROUTE_B' || this.type === 'LATE_AUTH') {
           totalRecoveredPaise += this.amount;
           logEvent(`🎉 [${this.type}] pay_${this.id} RECOVERED ₹${(this.amount/100).toFixed(0)} -> Reconciled to OMS`, 'text-emerald-400');
         } else {
-          logEvent(`🚨 [${this.type}] pay_${this.id} SHIFTED TO DLQ -> Fraud / KYC Alert Dispatched`, 'text-rose-400');
+          logEvent(`🚨 [${this.type}] pay_${this.id} NON-ADDRESSABLE DLQ -> Fraud/KYC review required`, 'text-rose-400');
         }
         updateKPIs();
       }
@@ -287,14 +222,12 @@
       const pulse = document.getElementById('livePulse');
 
       if (isRunning) {
-        btn.innerHTML = `<span>⏸</span> Pause`;
-        btn.className = 'bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-2 transition active:scale-95';
+        btn.innerHTML = `⏸ Pause`;
         badge.innerText = 'RUNNING';
         badge.className = 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] mono px-2 py-0.5 rounded font-semibold uppercase';
         pulse.className = 'inline-block w-3 h-3 rounded-full bg-emerald-500 animate-ping';
       } else {
-        btn.innerHTML = `<span>▶</span> Resume`;
-        btn.className = 'bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-2 transition active:scale-95';
+        btn.innerHTML = `▶ Resume`;
         badge.innerText = 'PAUSED';
         badge.className = 'bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] mono px-2 py-0.5 rounded font-semibold uppercase';
         pulse.className = 'inline-block w-3 h-3 rounded-full bg-amber-500';
@@ -303,19 +236,26 @@
 
     function resetSimulation() {
       particles = [];
-      totalIngested = 0;
-      totalRiskPaise = 0;
+      grossRiskPaise = 0;
+      addressableRiskPaise = 0;
+      inFlightPaise = 0;
       totalRecoveredPaise = 0;
       breakerTripped = false;
       breakerCountdown = 0;
-      document.getElementById('kpi-breaker').innerText = 'HEALTHY';
-      document.getElementById('kpi-breaker').className = 'text-sm font-bold text-emerald-400';
+      document.getElementById('kpi-breaker')?.remove();
       updateKPIs();
-      logEvent(`🔄 Simulation state reset successfully.`, 'text-cyan-400');
+      logEvent(`🔄 Simulation state reset.`, 'text-cyan-400');
     }
 
     function injectEvent(type) {
       if (!isRunning) return;
+
+      // Smart Rail Bridging intercept when HDFC is degraded
+      if (breakerTripped && type === 'ROUTE_A') {
+        logEvent(`🔀 [SMART RAIL BRIDGE] HDFC Netbanking degraded -> Auto-switched customer to HDFC UPI Intent!`, 'text-purple-300');
+        type = 'ROUTE_B'; // Seamlessly recovered via UPI
+      }
+
       let amount = 249900;
       let label = "502 Gateway Error";
 
@@ -330,19 +270,21 @@
         label = "Late Auth Captured";
       }
 
-      totalIngested++;
-      totalRiskPaise += amount;
+      grossRiskPaise += amount;
+      if (type !== 'ROUTE_C') {
+        addressableRiskPaise += amount;
+      }
+      inFlightPaise += amount;
+
       particles.push(new Packet(type, amount, label));
-      logEvent(`⚡ Ingested pay_sim_${Date.now().toString().slice(-4)} (${label}) -> Routing to ${type}`, 'text-cyan-400');
+      logEvent(`⚡ Ingested pay_${Date.now().toString().slice(-4)} (${label}) -> Assigned to ${type}`, 'text-cyan-400');
       updateKPIs();
     }
 
     function tripBreaker() {
       breakerTripped = true;
       breakerCountdown = 38;
-      document.getElementById('kpi-breaker').innerText = 'DEGRADED (38s)';
-      document.getElementById('kpi-breaker').className = 'text-sm font-bold text-rose-400 animate-pulse';
-      logEvent(`⚠️ [CIRCUIT BREAKER] HDFC Netbanking failure threshold (>=5) exceeded! Marked DEGRADED. Traffic rerouted to UPI.`, 'text-purple-400');
+      logEvent(`🚨 [CIRCUIT BREAKER] HDFC Netbanking threshold exceeded (5 drops). Marked DEGRADED. Smart Fallback: Rerouting users to HDFC UPI Intent.`, 'text-purple-400 font-bold');
     }
 
     function logEvent(msg, colorClass = 'text-slate-400') {
@@ -356,16 +298,21 @@
     }
 
     function updateKPIs() {
-      document.getElementById('kpi-total').innerText = totalIngested;
-      document.getElementById('kpi-risk').innerText = `₹${(totalRiskPaise/100).toLocaleString('en-IN')}`;
+      document.getElementById('kpi-gross-risk').innerText = `₹${(grossRiskPaise/100).toLocaleString('en-IN')}`;
+      document.getElementById('kpi-inflight').innerText = `₹${(inFlightPaise/100).toLocaleString('en-IN')}`;
       document.getElementById('kpi-recovered').innerText = `₹${(totalRecoveredPaise/100).toLocaleString('en-IN')}`;
-      const rate = totalRiskPaise > 0 ? ((totalRecoveredPaise / totalRiskPaise) * 100).toFixed(1) : '0.0';
-      document.getElementById('kpi-rate').innerText = `${rate}%`;
+
+      // Addressable Opportunity Rate (AOR)
+      const aor = addressableRiskPaise > 0 ? ((totalRecoveredPaise / addressableRiskPaise) * 100).toFixed(1) : '0.0';
+      document.getElementById('kpi-aor').innerText = `${aor}%`;
+
+      // Gross Rate
+      const grossRate = grossRiskPaise > 0 ? ((totalRecoveredPaise / grossRiskPaise) * 100).toFixed(1) : '0.0';
+      document.getElementById('kpi-gross-rate').innerText = `${grossRate}%`;
     }
 
     function drawTopology() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-
       ctx.lineWidth = 1.5;
       ctx.setLineDash([4, 4]);
       ctx.strokeStyle = '#1e293b';
@@ -425,7 +372,6 @@
     let trafficTimer = null;
     function resetAutoTraffic(rate) {
       if (trafficTimer) clearInterval(trafficTimer);
-      trafficRate = rate;
       if (rate > 0) {
         trafficTimer = setInterval(() => {
           if (!isRunning) return;
@@ -447,11 +393,7 @@
         breakerCountdown--;
         if (breakerCountdown <= 0) {
           breakerTripped = false;
-          document.getElementById('kpi-breaker').innerText = 'HEALTHY';
-          document.getElementById('kpi-breaker').className = 'text-sm font-bold text-emerald-400';
-          logEvent(`✅ [CIRCUIT BREAKER] 38s window elapsed. HDFC Netbanking self-healed to HEALTHY.`, 'text-emerald-400');
-        } else {
-          document.getElementById('kpi-breaker').innerText = `DEGRADED (${breakerCountdown}s)`;
+          logEvent(`✅ [CIRCUIT BREAKER] 38s window elapsed. HDFC Netbanking self-healed to HEALTHY.`, 'text-emerald-400 font-bold');
         }
       }
     }, 1000);
