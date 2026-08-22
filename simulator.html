@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autonomous Revenue Recovery Engine - Deep Inspection Visualizer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; background-color: #070a13; color: #e2e8f0; margin: 0; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    canvas { display: block; background: radial-gradient(circle at 50% 50%, #0f172a 0%, #050811 100%); }
+  </style>
+</head>
+<body class="flex flex-col min-h-screen">
+
+  <!-- Header & Telemetry Bar -->
+  <header class="border-b border-slate-800 bg-slate-950/90 backdrop-blur px-6 py-4 sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-2">
+          <span id="livePulse" class="inline-block w-3 h-3 rounded-full bg-emerald-500 animate-ping"></span>
+          <h1 class="text-lg font-bold text-white tracking-wide">Razorpay Autonomous Recovery Engine</h1>
+          <span id="statusBadge" class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] mono px-2 py-0.5 rounded font-semibold uppercase">RUNNING</span>
+        </div>
+        <p class="text-xs text-slate-400 mono">Real-Time Sub-Stage Particle & Circuit Breaker Simulator</p>
+      </div>
+
+      <!-- Real-time Financial Metrics -->
+      <div class="flex flex-wrap gap-3 text-xs mono">
+        <div class="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2">
+          <span class="text-slate-400 text-[10px] block">TOTAL INGESTED</span>
+          <p id="kpi-total" class="text-sm font-bold text-white">0</p>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2">
+          <span class="text-slate-400 text-[10px] block">REVENUE AT RISK</span>
+          <p id="kpi-risk" class="text-sm font-bold text-rose-400">₹0</p>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2">
+          <span class="text-slate-400 text-[10px] block">RECOVERED REVENUE</span>
+          <p id="kpi-recovered" class="text-sm font-bold text-emerald-400">₹0</p>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2">
+          <span class="text-slate-400 text-[10px] block">RECOVERY RATE</span>
+          <p id="kpi-rate" class="text-sm font-bold text-cyan-400">0.0%</p>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2">
+          <span class="text-slate-400 text-[10px] block">38s BREAKER (HDFC)</span>
+          <p id="kpi-breaker" class="text-sm font-bold text-emerald-400">HEALTHY</p>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Canvas Playground -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 flex flex-col gap-4">
+    
+    <!-- Control Deck -->
+    <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
+      
+      <!-- Primary Simulation Controls -->
+      <div class="flex items-center gap-2">
+        <button id="btnPlayPause" onclick="togglePlayPause()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-2 transition active:scale-95">
+          <span>⏸</span> Pause
+        </button>
+        <button onclick="resetSimulation()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold px-3 py-2 rounded-lg transition active:scale-95">
+          🔄 Reset State
+        </button>
+      </div>
+
+      <!-- Edge Case Injections -->
+      <div class="flex flex-wrap items-center gap-2 text-xs font-semibold">
+        <button onclick="injectEvent('ROUTE_A')" class="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 px-3 py-2 rounded-lg transition active:scale-95">
+          + 502 Blip (Route A)
+        </button>
+        <button onclick="injectEvent('ROUTE_B')" class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-2 rounded-lg transition active:scale-95">
+          + Low Balance (Route B)
+        </button>
+        <button onclick="injectEvent('ROUTE_C')" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 px-3 py-2 rounded-lg transition active:scale-95">
+          + Fraud Check (Route C)
+        </button>
+        <button onclick="injectEvent('LATE_AUTH')" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-3 py-2 rounded-lg transition active:scale-95">
+          + Late Captured Auth
+        </button>
+        <button onclick="tripBreaker()" class="bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30 px-3 py-2 rounded-lg transition active:scale-95">
+          ⚡ Trip 38s Breaker
+        </button>
+      </div>
+
+      <!-- Load Slider -->
+      <div class="flex items-center gap-3 text-xs mono">
+        <label class="text-slate-400">LOAD RATE:</label>
+        <input type="range" id="trafficSlider" min="0" max="10" value="2" class="accent-cyan-500 cursor-pointer">
+        <span id="trafficLabel" class="text-cyan-400 font-bold w-12">2 req/s</span>
+      </div>
+    </div>
+
+    <!-- Canvas -->
+    <div class="relative border border-slate-800 rounded-xl overflow-hidden shadow-2xl bg-slate-950">
+      <canvas id="flowCanvas" width="1240" height="560" class="w-full"></canvas>
+    </div>
+
+    <!-- Micro-Stage Architecture Breakdown Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
+      
+      <!-- Route A Breakdown -->
+      <div class="bg-slate-900/80 border border-cyan-900/40 rounded-xl p-3">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+          <h2 class="font-bold text-cyan-300">Route A: Silent Retry Rail</h2>
+        </div>
+        <ol class="space-y-1 text-slate-400 mono text-[11px] list-decimal list-inside">
+          <li>5XX / Gateway timeout triage</li>
+          <li>BullMQ exponential backoff (1m $\rightarrow$ 2m $\rightarrow$ 5m)</li>
+          <li>Inquest check (`verifyLateAuth`)</li>
+          <li>Max $R=3$ then sever to DLQ</li>
+        </ol>
+      </div>
+
+      <!-- Route B Breakdown -->
+      <div class="bg-slate-900/80 border border-amber-900/40 rounded-xl p-3">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+          <h2 class="font-bold text-amber-300">Route B: Agentic Dunning</h2>
+        </div>
+        <ol class="space-y-1 text-slate-400 mono text-[11px] list-decimal list-inside">
+          <li>DPDP PII stripping & masking</li>
+          <li>Gemini 2.5 Hinglish dunning agent</li>
+          <li>1-Click dynamic UPI link generation</li>
+          <li>Meta HSM WhatsApp dispatch</li>
+        </ol>
+      </div>
+
+      <!-- Route C Breakdown -->
+      <div class="bg-slate-900/80 border border-rose-900/40 rounded-xl p-3">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="w-2 h-2 rounded-full bg-rose-400"></span>
+          <h2 class="font-bold text-rose-300">Route C: Terminal DLQ Sink</h2>
+        </div>
+        <ol class="space-y-1 text-slate-400 mono text-[11px] list-decimal list-inside">
+          <li>Terminal failure / risk detection</li>
+          <li>Short-circuit with 0 auto-retries</li>
+          <li>Immutable MongoDB audit write</li>
+          <li>Merchant KYC/card update alert</li>
+        </ol>
+      </div>
+
+      <!-- Late Auth Breakdown -->
+      <div class="bg-slate-900/80 border border-emerald-900/40 rounded-xl p-3">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+          <h2 class="font-bold text-emerald-300">Late-Auth Reconciler</h2>
+        </div>
+        <ol class="space-y-1 text-slate-400 mono text-[11px] list-decimal list-inside">
+          <li>Bank clears delayed payment</li>
+          <li>Kill pending BullMQ retry jobs</li>
+          <li>Flip OMS state (`FAILED` $\rightarrow$ `PAID`)</li>
+          <li>WhatsApp reassurance to customer</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- Live Event Log Console -->
+    <div class="bg-black/80 border border-slate-900 rounded-xl p-3 mono text-[11px] h-28 overflow-y-auto" id="logConsole">
+      <div class="text-slate-500">[SYSTEM READY] Listening for Razorpay webhook payloads and mandate triggers...</div>
+    </div>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('flowCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Architecture Topology Nodes (Coordinates on 1240x560 canvas)
+    const nodes = {
+      ingress:   { x: 50,  y: 260, w: 120, h: 54, title: "1. Webhook Ingress", subtitle: "HMAC & Redis Idempotency", color: "#38bdf8" },
+      triage:    { x: 260, y: 260, w: 130, h: 54, title: "2. Error Triage Gate", subtitle: "Multi-Engine Inspection", color: "#818cf8" },
+      
+      // Execution Rail Nodes
+      routeA:    { x: 540, y: 80,  w: 150, h: 54, title: "Route A: BullMQ Queue", subtitle: "Silent 1m-2m-5m Retries", color: "#06b6d4" },
+      routeB:    { x: 540, y: 190, w: 150, h: 54, title: "Route B: AI Dunning", subtitle: "Gemini Hinglish & UPI Link", color: "#f59e0b" },
+      routeC:    { x: 540, y: 330, w: 150, h: 54, title: "Route C: Short-Circuit", subtitle: "0 Retries (Terminal DLQ)", color: "#f43f5e" },
+      lateAuth:  { x: 540, y: 440, w: 150, h: 54, title: "Late-Auth Inquest", subtitle: "Background Reconciler", color: "#10b981" },
+
+      // Sinks
+      reconcile: { x: 920, y: 190, w: 160, h: 54, title: "Recovery Ledger (DB)", subtitle: "Order Paid & OMS Sync", color: "#10b981" },
+      dlqSink:   { x: 920, y: 330, w: 160, h: 54, title: "Terminal DLQ Sink", subtitle: "Merchant Manual Review", color: "#e11d48" }
+    };
+
+    let isRunning = true;
+    let totalIngested = 0;
+    let totalRiskPaise = 0;
+    let totalRecoveredPaise = 0;
+    let breakerTripped = false;
+    let breakerCountdown = 0;
+    let particles = [];
+    let trafficRate = 2;
+
+    class Packet {
+      constructor(type, amount, label) {
+        this.id = Math.floor(Math.random() * 89999 + 10000);
+        this.type = type;
+        this.amount = amount;
+        this.label = label;
+        this.progress = 0;
+        this.speed = 0.006 + Math.random() * 0.003;
+        this.path = this.computePath(type);
+        this.currentX = this.path[0].x;
+        this.currentY = this.path[0].y;
+        this.color = type === 'ROUTE_A' ? '#06b6d4' : type === 'ROUTE_B' ? '#f59e0b' : type === 'ROUTE_C' ? '#f43f5e' : '#10b981';
+      }
+
+      computePath(type) {
+        const p = [
+          { x: nodes.ingress.x + 60, y: nodes.ingress.y + 27 },
+          { x: nodes.triage.x + 65, y: nodes.triage.y + 27 }
+        ];
+
+        if (type === 'ROUTE_A') {
+          p.push({ x: nodes.routeA.x + 75, y: nodes.routeA.y + 27 });
+          p.push({ x: nodes.reconcile.x + 80, y: nodes.reconcile.y + 27 });
+        } else if (type === 'ROUTE_B') {
+          p.push({ x: nodes.routeB.x + 75, y: nodes.routeB.y + 27 });
+          p.push({ x: nodes.reconcile.x + 80, y: nodes.reconcile.y + 27 });
+        } else if (type === 'ROUTE_C') {
+          p.push({ x: nodes.routeC.x + 75, y: nodes.routeC.y + 27 });
+          p.push({ x: nodes.dlqSink.x + 80, y: nodes.dlqSink.y + 27 });
+        } else if (type === 'LATE_AUTH') {
+          p.push({ x: nodes.lateAuth.x + 75, y: nodes.lateAuth.y + 27 });
+          p.push({ x: nodes.reconcile.x + 80, y: nodes.reconcile.y + 27 });
+        }
+        return p;
+      }
+
+      update() {
+        if (!isRunning) return true;
+        this.progress += this.speed;
+        if (this.progress >= 1) {
+          this.onComplete();
+          return false;
+        }
+
+        const totalSegments = this.path.length - 1;
+        const segmentProgress = this.progress * totalSegments;
+        const segIndex = Math.floor(segmentProgress);
+        const t = segmentProgress - segIndex;
+
+        if (segIndex < totalSegments) {
+          const p1 = this.path[segIndex];
+          const p2 = this.path[segIndex + 1];
+          this.currentX = p1.x + (p2.x - p1.x) * t;
+          this.currentY = p1.y + (p2.y - p1.y) * t;
+        }
+        return true;
+      }
+
+      draw() {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(this.currentX, this.currentY, 5, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.shadowColor = this.color;
+        ctx.shadowBlur = 10;
+        ctx.fill();
+
+        ctx.font = '9px "JetBrains Mono"';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(`₹${(this.amount/100).toFixed(0)}`, this.currentX + 8, this.currentY - 6);
+        ctx.restore();
+      }
+
+      onComplete() {
+        if (this.type === 'ROUTE_A' || this.type === 'ROUTE_B' || this.type === 'LATE_AUTH') {
+          totalRecoveredPaise += this.amount;
+          logEvent(`🎉 [${this.type}] pay_${this.id} RECOVERED ₹${(this.amount/100).toFixed(0)} -> Reconciled to OMS`, 'text-emerald-400');
+        } else {
+          logEvent(`🚨 [${this.type}] pay_${this.id} SHIFTED TO DLQ -> Fraud / KYC Alert Dispatched`, 'text-rose-400');
+        }
+        updateKPIs();
+      }
+    }
+
+    function togglePlayPause() {
+      isRunning = !isRunning;
+      const btn = document.getElementById('btnPlayPause');
+      const badge = document.getElementById('statusBadge');
+      const pulse = document.getElementById('livePulse');
+
+      if (isRunning) {
+        btn.innerHTML = `<span>⏸</span> Pause`;
+        btn.className = 'bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-2 transition active:scale-95';
+        badge.innerText = 'RUNNING';
+        badge.className = 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] mono px-2 py-0.5 rounded font-semibold uppercase';
+        pulse.className = 'inline-block w-3 h-3 rounded-full bg-emerald-500 animate-ping';
+      } else {
+        btn.innerHTML = `<span>▶</span> Resume`;
+        btn.className = 'bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-2 transition active:scale-95';
+        badge.innerText = 'PAUSED';
+        badge.className = 'bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] mono px-2 py-0.5 rounded font-semibold uppercase';
+        pulse.className = 'inline-block w-3 h-3 rounded-full bg-amber-500';
+      }
+    }
+
+    function resetSimulation() {
+      particles = [];
+      totalIngested = 0;
+      totalRiskPaise = 0;
+      totalRecoveredPaise = 0;
+      breakerTripped = false;
+      breakerCountdown = 0;
+      document.getElementById('kpi-breaker').innerText = 'HEALTHY';
+      document.getElementById('kpi-breaker').className = 'text-sm font-bold text-emerald-400';
+      updateKPIs();
+      logEvent(`🔄 Simulation state reset successfully.`, 'text-cyan-400');
+    }
+
+    function injectEvent(type) {
+      if (!isRunning) return;
+      let amount = 249900;
+      let label = "502 Gateway Error";
+
+      if (type === 'ROUTE_B') {
+        amount = 149900;
+        label = "Insufficient Funds";
+      } else if (type === 'ROUTE_C') {
+        amount = 500000;
+        label = "Risk Check Failed";
+      } else if (type === 'LATE_AUTH') {
+        amount = 399900;
+        label = "Late Auth Captured";
+      }
+
+      totalIngested++;
+      totalRiskPaise += amount;
+      particles.push(new Packet(type, amount, label));
+      logEvent(`⚡ Ingested pay_sim_${Date.now().toString().slice(-4)} (${label}) -> Routing to ${type}`, 'text-cyan-400');
+      updateKPIs();
+    }
+
+    function tripBreaker() {
+      breakerTripped = true;
+      breakerCountdown = 38;
+      document.getElementById('kpi-breaker').innerText = 'DEGRADED (38s)';
+      document.getElementById('kpi-breaker').className = 'text-sm font-bold text-rose-400 animate-pulse';
+      logEvent(`⚠️ [CIRCUIT BREAKER] HDFC Netbanking failure threshold (>=5) exceeded! Marked DEGRADED. Traffic rerouted to UPI.`, 'text-purple-400');
+    }
+
+    function logEvent(msg, colorClass = 'text-slate-400') {
+      const consoleEl = document.getElementById('logConsole');
+      const time = new Date().toTimeString().split(' ')[0];
+      const entry = document.createElement('div');
+      entry.className = colorClass;
+      entry.innerHTML = `<span class="text-slate-600">[${time}]</span> ${msg}`;
+      consoleEl.prepend(entry);
+      if (consoleEl.children.length > 50) consoleEl.removeChild(consoleEl.lastChild);
+    }
+
+    function updateKPIs() {
+      document.getElementById('kpi-total').innerText = totalIngested;
+      document.getElementById('kpi-risk').innerText = `₹${(totalRiskPaise/100).toLocaleString('en-IN')}`;
+      document.getElementById('kpi-recovered').innerText = `₹${(totalRecoveredPaise/100).toLocaleString('en-IN')}`;
+      const rate = totalRiskPaise > 0 ? ((totalRecoveredPaise / totalRiskPaise) * 100).toFixed(1) : '0.0';
+      document.getElementById('kpi-rate').innerText = `${rate}%`;
+    }
+
+    function drawTopology() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = '#1e293b';
+
+      const links = [
+        [nodes.ingress, nodes.triage],
+        [nodes.triage, nodes.routeA],
+        [nodes.triage, nodes.routeB],
+        [nodes.triage, nodes.routeC],
+        [nodes.triage, nodes.lateAuth],
+        [nodes.routeA, nodes.reconcile],
+        [nodes.routeB, nodes.reconcile],
+        [nodes.lateAuth, nodes.reconcile],
+        [nodes.routeC, nodes.dlqSink]
+      ];
+
+      links.forEach(([from, to]) => {
+        ctx.beginPath();
+        ctx.moveTo(from.x + from.w / 2, from.y + from.h / 2);
+        ctx.lineTo(to.x + to.w / 2, to.y + to.h / 2);
+        ctx.stroke();
+      });
+
+      ctx.setLineDash([]);
+
+      Object.values(nodes).forEach(n => {
+        ctx.fillStyle = '#0b1120';
+        ctx.strokeStyle = n.color;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.roundRect(n.x, n.y, n.w, n.h, 8);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.font = 'bold 11px Inter';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(n.title, n.x + 10, n.y + 22);
+
+        ctx.font = '9px "JetBrains Mono"';
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillText(n.subtitle, n.x + 10, n.y + 40);
+      });
+    }
+
+    function loop() {
+      drawTopology();
+
+      particles = particles.filter(p => {
+        const alive = p.update();
+        if (alive) p.draw();
+        return alive;
+      });
+
+      requestAnimationFrame(loop);
+    }
+
+    let trafficTimer = null;
+    function resetAutoTraffic(rate) {
+      if (trafficTimer) clearInterval(trafficTimer);
+      trafficRate = rate;
+      if (rate > 0) {
+        trafficTimer = setInterval(() => {
+          if (!isRunning) return;
+          const types = ['ROUTE_A', 'ROUTE_B', 'ROUTE_C', 'LATE_AUTH'];
+          const randType = types[Math.floor(Math.random() * types.length)];
+          injectEvent(randType);
+        }, 1000 / rate);
+      }
+    }
+
+    document.getElementById('trafficSlider').addEventListener('input', (e) => {
+      const val = parseInt(e.target.value);
+      document.getElementById('trafficLabel').innerText = `${val} req/s`;
+      resetAutoTraffic(val);
+    });
+
+    setInterval(() => {
+      if (breakerTripped && isRunning) {
+        breakerCountdown--;
+        if (breakerCountdown <= 0) {
+          breakerTripped = false;
+          document.getElementById('kpi-breaker').innerText = 'HEALTHY';
+          document.getElementById('kpi-breaker').className = 'text-sm font-bold text-emerald-400';
+          logEvent(`✅ [CIRCUIT BREAKER] 38s window elapsed. HDFC Netbanking self-healed to HEALTHY.`, 'text-emerald-400');
+        } else {
+          document.getElementById('kpi-breaker').innerText = `DEGRADED (${breakerCountdown}s)`;
+        }
+      }
+    }, 1000);
+
+    resetAutoTraffic(2);
+    loop();
+  </script>
+</body>
+</html>

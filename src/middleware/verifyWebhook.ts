@@ -32,27 +32,28 @@ export const verifyWebhookSignature = (req: Request, res: Response, next: NextFu
 
 export const idempotencyGuard = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const paymentId = req.body?.payload?.payment?.entity?.id || req.body?.id;
-    const eventId = req.body?.account_id + ':' + (paymentId || Date.now());
+    const eventPayload = req.body;
+    const eventName = eventPayload?.event || 'generic_event';
+    const paymentId = eventPayload?.payload?.payment?.entity?.id || eventPayload?.id;
 
     if (!paymentId) {
       next();
       return;
     }
 
-    const lockKey = `lock:webhook:${paymentId}`;
-    // Set 24-hour TTL lock atomically
+    // Event-scoped atomic lock (e.g. lock:webhook:payment.captured:pay_12345)
+    const lockKey = `lock:webhook:${eventName}:${paymentId}`;
     const acquired = await redisConnection.set(lockKey, 'PROCESSED', 'EX', 86400, 'NX');
 
     if (!acquired) {
-      // Duplicate delivery: Acknowledge HTTP 200 immediately and discard
-      res.status(200).json({ status: 'ignored', message: 'Duplicate webhook event dropped' });
+      // Duplicate event delivery: Discard duplicate and return HTTP 200
+      res.status(200).json({ status: 'ignored', message: `Duplicate ${eventName} event dropped` });
       return;
     }
 
     next();
   } catch (error) {
-    console.error('Idempotency check failed:', error);
+    console.error('Idempotency check error:', error);
     next();
   }
 };
