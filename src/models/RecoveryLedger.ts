@@ -76,5 +76,7 @@ const RecoveryLedgerSchema = new Schema<IRecoveryLedger>(
   },
   { timestamps: true }
 );
-
+RecoveryLedgerSchema.index({ paymentId: 1 }, { unique: true });
+RecoveryLedgerSchema.index({ status: 1, assignedRoute: 1 });
+RecoveryLedgerSchema.index({ createdAt: -1 });
 export const RecoveryLedger = mongoose.model<IRecoveryLedger>('RecoveryLedger', RecoveryLedgerSchema);

@@ -47,7 +47,7 @@ export class TriageService {
       return {
         route: 'ROUTE_C',
         reason: `Hard failure: ${reason || 'business_error'}`,
-        isDebitedRisk: false,
+        isDebitedRisk,
         maxRetries: 0,
         suggestedAction: 'Escalate to merchant; alert customer to update KYC or payment instrument.',
       };
@@ -56,7 +56,7 @@ export class TriageService {
     // 2. Transient 5XX / Gateway drops -> Route A (Silent 1m-2m-5m Retries)
     if (
       TRANSIENT_GATEWAY_REASONS.has(reason) ||
-      source === 'gateway' ||
+      source === 'gateway' ||source=='issuer_bank'||
       source === 'internal' ||
       payment.error_code === 'SERVER_ERROR' ||
       payment.error_code === 'GATEWAY_ERROR'
@@ -92,3 +92,5 @@ export class TriageService {
     }
   }
 }
+export const verifyLateAuthorization = TriageService.verifyLateAuthorization;
+export const diagnosePaymentFailure = TriageService.diagnose;

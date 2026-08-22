@@ -2,24 +2,32 @@ import { Queue, Worker, Job } from 'bullmq';
 import { redisConnection } from '../config/redis';
 import { RecoveryLedger } from '../models/RecoveryLedger';
 import { AiDunningService } from '../services/aiDunning';
-import { TriageService } from '../services/triageMatrix';
+import { verifyLateAuthorization } from '../services/triageMatrix';
+import { timeStamp } from 'node:console';
 
-// Define BullMQ Queues
-export const routeAQueue = new Queue('route-a-silent-retries', { connection: redisConnection as any });
-export const routeBQueue = new Queue('route-b-agentic-dunning', { connection: redisConnection as any });
+const DEFAULT_QUEUE_CONFIG = {
+  connection: redisConnection as any,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: {
+      type: 'exponential',
+      delay: 2000,
+    },
+    removeOnComplete: 200,
+    removeOnFail: 1000,
+  },
+};
 
-/**
- * Worker for Route A: Silent 1m -> 2m -> 5m 5XX Retries
- */
+export const routeAQueue = new Queue('route-a-silent-retries', DEFAULT_QUEUE_CONFIG);
+export const routeBQueue = new Queue('route-b-agentic-dunning', DEFAULT_QUEUE_CONFIG);
+
 export const routeAWorker = new Worker(
   'route-a-silent-retries',
   async (job: Job) => {
-    const { paymentId, amount, retryCount } = job.data;
-    console.log(`[Route A Worker] Processing Silent Retry for ${paymentId} (Attempt ${retryCount + 1}/3)`);
+    const { paymentId, amount, retryCount = 0 } = job.data;
 
-    // Inquest: Check if captured in background
-    const isCaptured = await TriageService.verifyLateAuthorization(paymentId);
-
+    // Guard: Check if payment already cleared via bank delayed capture
+    const isCaptured = await verifyLateAuthorization(paymentId);
     if (isCaptured) {
       await RecoveryLedger.findOneAndUpdate(
         { paymentId },
@@ -38,28 +46,23 @@ export const routeAWorker = new Worker(
       return { status: 'RECOVERED' };
     }
 
-    if (retryCount + 1 >= 3) {
-      // Sever recovery path after 3 attempts -> Route to DLQ
+    // Terminal DLQ transition after 3 scheduled intervals
+    const delays = [60000, 120000, 300000]; // 1m -> 2m -> 5m
+    if(retryCount>=delays.length){
       await RecoveryLedger.findOneAndUpdate(
-        { paymentId },
-        {
-          status: 'TERMINAL_DLQ',
-          retryCount: 3,
-          $push: {
-            auditTrail: {
-              stage: 'TERMINAL_REVIEW',
-              action: 'Exhausted 3 silent retries. Shifted to Terminal DLQ.',
-              timestamp: new Date(),
-            },
-          },
+        {paymentId},{
+          status:"TERMINAL_DLQ",
+          retryCount,
+          $push:{auditTrail:{stage:"TERMINAL_REVIEW",
+            action:'Exhausted all 3 silent retries (1m, 2m, 5m). Moved to DLQ.',
+            timestamp:new Date()
+          }}
         }
       );
-      return { status: 'TERMINAL_DLQ' };
+      return {status:'TERMINAL_DLQ'};
     }
-
-    // Schedule next backoff attempt (60s, 120s, 300s)
-    const delays = [60000, 120000, 300000];
-    const nextDelay = delays[retryCount] || 300000;
+    const nextDelay = delays[retryCount];
+    
 
     await RecoveryLedger.findOneAndUpdate(
       { paymentId },
@@ -85,25 +88,33 @@ export const routeAWorker = new Worker(
   { connection: redisConnection as any, concurrency: 5 }
 );
 
-/**
- * Worker for Route B: Agentic Dunning & 1-Click UPI Links
- */
 export const routeBWorker = new Worker(
   'route-b-agentic-dunning',
   async (job: Job) => {
     const { paymentId, amount, errorReason, email, contact, isDebitedRisk } = job.data;
-    console.log(`[Route B Worker] Executing Dunning Flow for ${paymentId}`);
-
-    // Generate UPI Intent Link
+    const isCaptured = await verifyLateAuthorization(paymentId);
+    if(isCaptured){
+      await RecoveryLedger.findOneAndUpdate(
+        {paymentId},{
+          status:"RECOVERED",
+          recoveredAmount:amount,
+          $push:{auditTrail:{
+            stage:"INQUEST",
+            action:'Payment already captured before dunning dispatch. Nudge suppressed.',
+            timeStamp:new Date()
+          }}
+        }
+      );
+      return {status:'SUPPRESSED_ALREADY_PAID'};
+    }
     const linkUrl = await AiDunningService.createRecoveryPaymentLink(paymentId, amount, email, contact);
-
-    // Generate Hinglish Outreach
-    const message = await AiDunningService.generateRecoveryMessage(
-      'Customer',
+    const dunningResult = await AiDunningService.generateRecoveryMessage(
+      email?.split('@')[0] || 'Customer',
       amount,
       errorReason,
       linkUrl,
-      isDebitedRisk
+      isDebitedRisk,
+      contact
     );
 
     await RecoveryLedger.findOneAndUpdate(
@@ -114,15 +125,20 @@ export const routeBWorker = new Worker(
         $push: {
           auditTrail: {
             stage: 'AGENTIC_DUNNING',
-            action: 'Dispatched 1-click UPI recovery nudge.',
-            details: { linkUrl, messageSnippet: message.text.substring(0, 80) },
+            action: `Dispatched ${dunningResult.templateId} via WhatsApp.`,
+            details: {
+              linkUrl,
+              dispatchStatus: dunningResult.dispatchResult.status,
+              messageId: dunningResult.dispatchResult.messageId,
+              messagePreview: dunningResult.text.slice(0, 80),
+            },
             timestamp: new Date(),
           },
         },
       }
     );
 
-    return { status: 'DUNNING_SENT', linkUrl };
+    return { status: 'DUNNING_SENT', linkUrl, templateId: dunningResult.templateId };
   },
   { connection: redisConnection as any, concurrency: 10 }
 );

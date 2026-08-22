@@ -22,7 +22,15 @@ export const verifyWebhookSignature = (req: Request, res: Response, next: NextFu
     .update(rawBody)
     .digest('hex');
 
-  if (signature !== expectedSignature && process.env.NODE_ENV !== 'test') {
+  const sigBuffer = Buffer.from(signature, 'utf8');
+  const expectedBuffer = Buffer.from(expectedSignature, 'utf8');
+  if (sigBuffer.length !== expectedBuffer.length) {
+    res.status(401).json({ error: 'Invalid webhook signature length' });
+    return;
+  }
+  const isValid = crypto.timingSafeEqual(sigBuffer, expectedBuffer);
+
+  if (!isValid) {
     res.status(401).json({ error: 'Invalid webhook signature' });
     return;
   }

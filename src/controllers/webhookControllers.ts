@@ -37,58 +37,61 @@ export const handleRazorpayWebhook = async (req: Request, res: Response): Promis
     // Triage the failure
     const triage = TriageService.diagnose(payment);
 
-    // Persist to MongoDB Ledger
-    const ledger = await RecoveryLedger.create({
-      paymentId: payment.id,
-      orderId: payment.order_id,
-      invoiceId: payment.invoice_id,
-      amount: payment.amount,
-      currency: payment.currency,
-      customerEmail: payment.email,
-      customerContact: payment.contact,
-      errorSource: payment.error_source,
-      errorStep: payment.error_step,
-      errorReason: payment.error_reason,
-      errorCode: payment.error_code,
-      assignedRoute: triage.route,
-      status: triage.route === 'ROUTE_C' ? 'TERMINAL_DLQ' : 'PENDING',
-      maxRetries: triage.maxRetries,
-      isDebitedRisk: triage.isDebitedRisk,
-      auditTrail: [
-        {
-          stage: 'INGESTION',
-          action: `Webhook received: ${eventPayload.event}`,
-          details: { error_reason: payment.error_reason, source: payment.error_source },
-          timestamp: new Date(),
-        },
-        {
-          stage: 'TRIAGE',
-          action: `Assigned to ${triage.route}`,
-          details: { suggestedAction: triage.suggestedAction },
-          timestamp: new Date(),
-        },
-      ],
-    });
+    // 1. Send immediate 200 OK acknowledgment to Razorpay (sub-10ms response time)
+    res.status(200).json({ status: 'ingested', route: triage.route, paymentId: payment.id });
 
-    // Route dispatching
-    if (triage.route === 'ROUTE_A') {
-      await routeAQueue.add('silent-retry-job', {
+    // 2. Execute MongoDB Atlas write and BullMQ queue push concurrently in the background
+    Promise.all([
+      RecoveryLedger.create({
         paymentId: payment.id,
+        orderId: payment.order_id,
+        invoiceId: payment.invoice_id,
         amount: payment.amount,
-        retryCount: 0,
-      });
-    } else if (triage.route === 'ROUTE_B') {
-      await routeBQueue.add('agentic-dunning-job', {
-        paymentId: payment.id,
-        amount: payment.amount,
+        currency: payment.currency,
+        customerEmail: payment.email,
+        customerContact: payment.contact,
+        errorSource: payment.error_source,
+        errorStep: payment.error_step,
         errorReason: payment.error_reason,
-        email: payment.email,
-        contact: payment.contact,
+        errorCode: payment.error_code,
+        assignedRoute: triage.route,
+        status: triage.route === 'ROUTE_C' ? 'TERMINAL_DLQ' : 'PENDING',
+        maxRetries: triage.maxRetries,
         isDebitedRisk: triage.isDebitedRisk,
-      });
-    }
-
-    res.status(200).json({ status: 'ingested', route: triage.route, ledgerId: ledger._id });
+        auditTrail: [
+          {
+            stage: 'INGESTION',
+            action: `Webhook received: ${eventPayload.event}`,
+            details: { error_reason: payment.error_reason, source: payment.error_source },
+            timestamp: new Date(),
+          },
+          {
+            stage: 'TRIAGE',
+            action: `Assigned to ${triage.route}`,
+            details: { suggestedAction: triage.suggestedAction },
+            timestamp: new Date(),
+          },
+        ],
+      }),
+      triage.route === 'ROUTE_A'
+        ? routeAQueue.add('silent-retry-job', {
+            paymentId: payment.id,
+            amount: payment.amount,
+            retryCount: 0,
+          })
+        : triage.route === 'ROUTE_B'
+        ? routeBQueue.add('agentic-dunning-job', {
+            paymentId: payment.id,
+            amount: payment.amount,
+            errorReason: payment.error_reason,
+            email: payment.email,
+            contact: payment.contact,
+            isDebitedRisk: triage.isDebitedRisk,
+          })
+        : Promise.resolve(null),
+    ]).catch((err) => {
+      console.error(`Async background persistence error for ${payment.id}:`, err.message);
+    });
   } catch (error: any) {
     console.error('Error handling webhook:', error);
     res.status(500).json({ error: error.message });

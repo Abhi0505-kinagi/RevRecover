@@ -1,8 +1,8 @@
+dotenv.config();
 import axios from 'axios';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
-
-dotenv.config();
+import { formatRazorpayAmount } from '../config/razorpay';
 
 const API_BASE = 'http://localhost:5000/api';
 const SECRET = process.env.RAZORPAY_WEBHOOK_SECRET || 'test_secret';
@@ -250,18 +250,19 @@ async function runMasterSimulation() {
   // FINAL SYSTEM METRICS SUMMARY
   // ---------------------------------------------------------------------------
   const finalMetrics = await axios.get(`${API_BASE}/metrics`);
-  const financials = finalMetrics.data.financials;
+  const kpis = finalMetrics.data.financialKPIs || finalMetrics.data.financials || {};
+  const rates = kpis.rates || {};
 
   console.log('================================================================');
   console.log('                    SYSTEM HEALTH & METRICS                     ');
   console.log('================================================================');
   console.log(`Test Pass Rate:              ${passedTests}/${totalTests} Passed`);
-  console.log(`Total Revenue Ingested:      ₹${financials.totalRevenueAtRiskInRupees.toLocaleString('en-IN')}`);
-  console.log(`Total Revenue Recovered:     ₹${financials.totalRecoveredInRupees.toLocaleString('en-IN')}`);
-  console.log(`Recovery Conversion Rate:    ${financials.recoverySuccessRatePercentage}%`);
-  console.log(`Total Transactions Logged:   ${financials.totalTransactionsIngested}`);
+  console.log(`Gross Revenue at Risk: ${formatRazorpayAmount((kpis.grossRevenueAtRisk || 0) * 100, 'INR')}`);
+  console.log(`Net Revenue Recovered:       ₹${Number(kpis.totalRecovered || 0).toLocaleString('en-IN')}`);
+  console.log(`Addressable Opp Rate (AOR):  ${rates.netAddressableOpportunityRatePercentage || 0}%`);
+  console.log(`Gross Recovery Rate:         ${rates.grossRecoveryRatePercentage || 0}%`);
   console.log('================================================================\n');
-}
+  }
 
 runMasterSimulation().catch((err) => {
   console.error('Master simulation failed:', err.response?.data || err.message);

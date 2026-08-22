@@ -16,7 +16,16 @@ export const getPaymentOptionsHealth = async (_req: Request, res: Response): Pro
 
 export const simulateBankFailure = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { rail } = req.body; // e.g., "netbanking_HDFC"
+    // Defense-in-depth: Reject in production unless explicitly bypassed by demo key
+    const isProduction = process.env.NODE_ENV === 'production';
+    const demoBypassHeader = req.headers['x-demo-key'];
+
+    if (isProduction && demoBypassHeader !== 'razorpay_buildathon_demo') {
+      res.status(403).json({ error: 'Failure simulation disabled in production' });
+      return;
+    }
+
+    const { rail } = req.body;
     if (!rail) {
       res.status(400).json({ error: 'Missing rail parameter' });
       return;

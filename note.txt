@@ -83,3 +83,13 @@
 [1. Kill Pending Dunning]  [2. Flip Order in OMS]      [3. Customer Reassurance Nudge]
 • Cancels BullMQ retries   • Emits `order.recovered`   • WhatsApp: "Your payment cleared!
 • Deactivates backup link  • Status: FAILED ──> PAID     Order #1042 is confirmed."
+
+
+Experimental Results:
+Metric,Before (Synchronous Blocking),After (Non-Blocking Ingress + Indexes),Improvement
+Total Duration,71.91s,11.78s,6.1x faster
+Throughput,13.9 req/sec,84.9 req/sec,6.1x increase
+Success Rate,98.0% (20 dropped),"100.0% (1,000 / 1,000)",Zero drops
+p50 Latency (Median),"3,579.77 ms",5.13 ms,99.8% reduction
+p99 Latency (Tail),"10,007.64 ms","3,321.92 ms",3x reduction
+Minimum Latency,194.64 ms,1.48 ms,Sub-2ms wire speed
