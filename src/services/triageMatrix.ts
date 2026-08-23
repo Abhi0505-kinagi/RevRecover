@@ -2,12 +2,16 @@ import { RazorpayPaymentEntity, TriageResult } from '../types/razorpay';
 import { razorpayClient } from '../config/razorpay';
 //diagnose failure root causes and verify if funds were captured late before taking action:
 // Hard failures that must never be auto-retried
-const TERMINAL_HARD_REASONS = new Set([
+
+const BANK_SECURITY_REASONS = new Set([
+  'payment_risk_check_failed',
+  'compliance_violation',
+]);
+
+const INSTRUMENT_HARD_REASONS = new Set([
   'card_expired',
   'debit_instrument_blocked',
   'debit_instrument_inactive',
-  'payment_risk_check_failed',
-  'compliance_violation',
   'card_disabled_for_online_payments',
   'bank_account_invalid',
   'beneficiary_account_does_not_exist',
@@ -43,24 +47,37 @@ export class TriageService {
     const isDebitedRisk = step === 'payment_authorization' || step === 'payment_capture';
 
     // 1. Terminal Hard Errors -> Route C (Short-circuit to DLQ)
-    if (TERMINAL_HARD_REASONS.has(reason) || source === 'business') {
+    // 1. Terminal Bank Security & Fraud -> Route C (No retry; advise contacting issuing bank)
+    if (BANK_SECURITY_REASONS.has(reason)) {
       return {
         route: 'ROUTE_C',
-        reason: `Hard failure: ${reason || 'business_error'}`,
+        reason: `Bank Security Block: ${reason}`,
+        isDebitedRisk: false,
+        maxRetries: 0,
+        suggestedAction: 'Notify merchant: Amount not debited. Advise customer to contact issuing bank.',
+      };
+    }
+
+    // 2. Terminal Instrument Errors -> Route C (Prompt to change payment method)
+    if (INSTRUMENT_HARD_REASONS.has(reason) || source === 'business') {
+      return {
+        route: 'ROUTE_C',
+        reason: `Invalid Instrument: ${reason || 'business_error'}`,
         isDebitedRisk,
         maxRetries: 0,
-        suggestedAction: 'Escalate to merchant; alert customer to update KYC or payment instrument.',
+        suggestedAction: 'Prompt customer on checkout UI to update card details or select UPI.',
       };
     }
 
     // 2. Transient 5XX / Gateway drops -> Route A (Silent 1m-2m-5m Retries)
     if (
       TRANSIENT_GATEWAY_REASONS.has(reason) ||
-      source === 'gateway' ||source=='issuer_bank'||
+      source === 'gateway' ||
+      source === 'issuer_bank' ||
       source === 'internal' ||
-      payment.error_code === 'SERVER_ERROR' ||
-      payment.error_code === 'GATEWAY_ERROR'
-    ) {
+      payment?.error_code === 'SERVER_ERROR' ||
+      payment?.error_code === 'GATEWAY_ERROR'
+    ){
       return {
         route: 'ROUTE_A',
         reason: `Transient infrastructure error: ${reason}`,
@@ -85,7 +102,7 @@ export class TriageService {
    */
   public static async verifyLateAuthorization(paymentId: string): Promise<boolean> {
     try {
-      const payment = await razorpayClient.payments.fetch(paymentId);
+      const payment: any = await razorpayClient.payments.fetch(paymentId);
       return payment.status === 'captured';
     } catch (error) {
       return false;

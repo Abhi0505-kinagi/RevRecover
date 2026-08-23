@@ -4,6 +4,8 @@ import { RecoveryLedger } from '../models/RecoveryLedger';
 import { AiDunningService } from '../services/aiDunning';
 import { verifyLateAuthorization } from '../services/triageMatrix';
 import { timeStamp } from 'node:console';
+import { Invoice } from '../models/Invoice';
+import { LegalNoticeService } from '../services/legalNoticeService';
 
 const DEFAULT_QUEUE_CONFIG = {
   connection: redisConnection as any,
@@ -141,4 +143,55 @@ export const routeBWorker = new Worker(
     return { status: 'DUNNING_SENT', linkUrl, templateId: dunningResult.templateId };
   },
   { connection: redisConnection as any, concurrency: 10 }
+);
+export const ptpWatchdogQueue = new Queue('ptp-watchdog-queue', DEFAULT_QUEUE_CONFIG);
+
+export const ptpWatchdogWorker = new Worker(
+  'ptp-watchdog-queue',
+  async (job: Job) => {
+    const { invoiceId } = job.data;
+
+    const invoice = await Invoice.findById(invoiceId);
+    if (!invoice) return { status: 'INVOICE_NOT_FOUND' };
+
+    // Guard: If invoice is already paid, do nothing
+    if (invoice.status === 'PAID') {
+      return { status: 'ALREADY_PAID' };
+    }
+
+    // Check if PTP date has passed and payment is still unfulfilled
+    const isPtpBreached =
+      invoice.status === 'PROMISE_TO_PAY' &&
+      invoice.ptpDate &&
+      new Date() > new Date(invoice.ptpDate);
+
+    if (isPtpBreached) {
+      // 1. Transition state
+      invoice.status = 'ESCALATED_LEGAL';
+      await invoice.save();
+
+      // 2. Dispatch Formal Legal Notice Email with Interest & Penalties
+      const linkUrl = await AiDunningService.createRecoveryPaymentLink(
+        invoice.invoiceId,
+        invoice.amount,
+        invoice.clientEmail,
+        invoice.clientPhone
+      );
+      await LegalNoticeService.dispatchDemandNotice({
+        invoiceNumber: invoice.invoiceId,
+        clientCompanyName: invoice.clientName,
+        clientEmail: invoice.clientEmail,
+        originalDueDate: invoice.dueDate.toISOString().split('T')[0],
+        breachedPtpDate: invoice.ptpDate?.toISOString().split('T')[0],
+        principalAmount: invoice.amount,
+        curePeriodDays: 7,
+        paymentLink:linkUrl
+      });
+
+      return { status: 'ESCALATED_LEGAL_NOTICE_SENT', invoiceNumber: invoice.invoiceId };
+    }
+
+    return { status: 'PTP_STILL_ACTIVE' };
+  },
+  { connection: redisConnection as any, concurrency: 5 }
 );
