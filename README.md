@@ -90,7 +90,7 @@ flowchart TD
 
 ### A user encounters an "Insufficient Funds" error or accidentally closes their UPI PIN entry modal. Standard systems send un-personalized email notifications that go unopened, or repeatedly hit the same failing card.
 Solution:
-<img width="726" height="546" alt="InsufficientFund drawio" src="https://github.com/user-attachments/assets/8d812e67-0054-42dc-9c69-fc16d4ae301f" />
+<img width="842" height="657" alt="Screenshot 2026-08-23 202230" src="https://github.com/user-attachments/assets/4c98bbd7-825e-45a5-ba54-b4a80ca6f40f" />
 
 ### A customer’s card is expired or flagged for fraud. If a gateway aggressively retries this transaction, the merchant incurs card network penalty fees and risks compliance penalties.
 Solution: 
