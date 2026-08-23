@@ -83,3 +83,42 @@ flowchart TD
     class DLQ alert;
     class AuthReject alert;
 ```
+
+### Problems Solved:
+### A user attempts a checkout. Their issuing bank deducts the money from their bank account, but a network timeout occurs right before the bank's confirmation response reaches Razorpay. Razorpay fires a payment.failed webhook. Traditional systems blindly retry the charge (causing a double debit) or send angry support tickets.
+<img width="760" height="540" alt="lateauthorization drawio (1)" src="https://github.com/user-attachments/assets/32990176-cc22-482d-bcde-2cf8ec21f7c0" />
+
+### A user encounters an "Insufficient Funds" error or accidentally closes their UPI PIN entry modal. Standard systems send un-personalized email notifications that go unopened, or repeatedly hit the same failing card.
+Solution:
+<img width="726" height="546" alt="InsufficientFund drawio" src="https://github.com/user-attachments/assets/8d812e67-0054-42dc-9c69-fc16d4ae301f" />
+
+### A customer’s card is expired or flagged for fraud. If a gateway aggressively retries this transaction, the merchant incurs card network penalty fees and risks compliance penalties.
+Solution: 
+<img width="746" height="586" alt="cardexpiryorfraud drawio" src="https://github.com/user-attachments/assets/e4f52e82-67c8-4b0b-a94d-848857cb081b" />
+### B2B invoices become overdue. Traditional follow-ups involve manual emails that get ignored, leaving merchants with cash flow gaps and no structured legal track.
+Solution:
+<img width="891" height="564" alt="b2brecovery drawio" src="https://github.com/user-attachments/assets/218e5f59-698d-41c3-b7ed-c8b06a0711a7" />
+
+
+# Environment Variables
+```
+PORT=port
+NODE_ENV=mode
+REDIS_HOST=your_host
+REDIS_PORT=redis port
+REDIS_PASSWORD=your_reidis password
+MONGO_URI= your_mognoDBURL
+BENCHMARK_MODE=false
+SMTP_HOST=smpt service
+SMTP_PORT=smtp_port
+SMTP_USER=uer_smpt_user
+SMTP_PASS=smtp_pass
+RAZORPAY_KEY_ID=rzp_test_YourKeyIdHere
+RAZORPAY_KEY_SECRET=YourKeySecretHere
+RAZORPAY_WEBHOOK_SECRET=YourWebhookSecretHere
+GEMINI_API_KEY=your_gemini_api_key
+META_WHATSAPP_TOKEN=mock
+META_PHONE_NUMBER_ID=mock
+```
+
+
