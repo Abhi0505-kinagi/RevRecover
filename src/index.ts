@@ -8,7 +8,7 @@ import invoiceRoutes from './routes/invoiceRoutes';
 import metricsRoutes from './routes/metricsRoutes';
 import './config/redis';
 import './queues/recoveryQueues';
-
+import { renderDashboard, handleSeedData } from './controllers/dashboardController';
 dotenv.config();
 
 const app = express();
@@ -27,6 +27,8 @@ app.use('/api/webhooks', webhookRoutes);
 app.use('/api/checkout', checkoutRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/metrics', metricsRoutes);
+app.get('/dashboard', renderDashboard);
+app.get('/dashboard/seed', handleSeedData);
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });

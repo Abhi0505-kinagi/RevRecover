@@ -117,7 +117,7 @@ export class LegalNoticeService {
 
     try {
       await this.transporter.sendMail({
-        from: '"Finance & Recovery Desk" <finance@yourdomain.com>',
+        from: `"Finance & Recovery Desk" <${process.env.SMTP_USER}>`,
         to: payload.clientEmail,
         subject: `[FINAL DEMAND] Outstanding Settlement Notice - Invoice #${payload.invoiceNumber} (${penalty.totalPayableFormatted})`,
         html: emailHtml,
