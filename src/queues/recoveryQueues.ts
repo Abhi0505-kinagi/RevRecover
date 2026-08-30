@@ -27,7 +27,11 @@ export const routeAWorker = new Worker(
   'route-a-silent-retries',
   async (job: Job) => {
     const { paymentId, amount, retryCount = 0 } = job.data;
-
+       // succeeded on a retried order-level payment while this job was queued).
+    const existing = await RecoveryLedger.findOne({ paymentId });
+    if (existing && (existing.status === 'RECOVERED' || existing.status === 'TERMINAL_DLQ')) {
+      return { status: 'SKIPPED_ALREADY_RESOLVED', currentStatus: existing.status };
+    }
     // Guard: Check if payment already cleared via bank delayed capture
     const isCaptured = await verifyLateAuthorization(paymentId);
     if (isCaptured) {
@@ -49,7 +53,7 @@ export const routeAWorker = new Worker(
     }
 
     // Terminal DLQ transition after 3 scheduled intervals
-    const delays = [60000, 120000, 300000]; // 1m -> 2m -> 5m
+    const delays = process.env.BENCHMARK_FAST_RETRY === 'true'? [2000, 4000, 8000]: [60000, 120000, 300000];
     if(retryCount>=delays.length){
       await RecoveryLedger.findOneAndUpdate(
         {paymentId},{
@@ -94,6 +98,10 @@ export const routeBWorker = new Worker(
   'route-b-agentic-dunning',
   async (job: Job) => {
     const { paymentId, amount, errorReason, email, contact, isDebitedRisk } = job.data;
+    const existing = await RecoveryLedger.findOne({ paymentId });
+    if (existing && (existing.status === 'RECOVERED' || existing.status === 'TERMINAL_DLQ')) {
+      return { status: 'SKIPPED_ALREADY_RESOLVED', currentStatus: existing.status };
+    }
     const isCaptured = await verifyLateAuthorization(paymentId);
     if(isCaptured){
       await RecoveryLedger.findOneAndUpdate(
@@ -109,27 +117,45 @@ export const routeBWorker = new Worker(
       );
       return {status:'SUPPRESSED_ALREADY_PAID'};
     }
-    const linkUrl = await AiDunningService.createRecoveryPaymentLink(paymentId, amount, email, contact);
+    //const linkUrl = await AiDunningService.createRecoveryPaymentLink(paymentId, amount, email, contact);
+    // CORRECTED (Assigns directly to the outer scoped variable)
+    let linkUrl: string;
+    let linkResult: { url: string; orderId: string | null };
+    try {
+      linkResult = await AiDunningService.createRecoveryPaymentLink(
+        paymentId, 
+        amount, 
+        email, 
+        contact, 
+        undefined, 
+        paymentId
+      );
+    } catch (apiError) {
+      console.error('Worker failed to create payment link, aborting dunning dispatch.');
+      throw apiError; 
+    }
     const dunningResult = await AiDunningService.generateRecoveryMessage(
       email?.split('@')[0] || 'Customer',
       amount,
       errorReason,
-      linkUrl,
+      linkResult.url,
       isDebitedRisk,
       contact
     );
+    
 
     await RecoveryLedger.findOneAndUpdate(
       { paymentId },
       {
         status: 'DUNNING_SENT',
-        paymentLinkUrl: linkUrl,
+        paymentLinkUrl: linkResult.url,
         $push: {
           auditTrail: {
             stage: 'AGENTIC_DUNNING',
             action: `Dispatched ${dunningResult.templateId} via WhatsApp.`,
             details: {
-              linkUrl,
+              paymentLinkUrl: linkResult.url,
+              recoveryOrderId: linkResult.orderId,
               dispatchStatus: dunningResult.dispatchResult.status,
               messageId: dunningResult.dispatchResult.messageId,
               messagePreview: dunningResult.text.slice(0, 80),
@@ -139,8 +165,7 @@ export const routeBWorker = new Worker(
         },
       }
     );
-
-    return { status: 'DUNNING_SENT', linkUrl, templateId: dunningResult.templateId };
+   return { status: 'DUNNING_SENT', linkUrl: linkResult.url, templateId: dunningResult.templateId };
   },
   { connection: redisConnection as any, concurrency: 10 }
 );
@@ -171,11 +196,12 @@ export const ptpWatchdogWorker = new Worker(
       await invoice.save();
 
       // 2. Dispatch Formal Legal Notice Email with Interest & Penalties
-      const linkUrl = await AiDunningService.createRecoveryPaymentLink(
+      const linkResult = await AiDunningService.createRecoveryPaymentLink(
         invoice.invoiceId,
         invoice.amount,
         invoice.clientEmail,
-        invoice.clientPhone
+        invoice.clientPhone,
+        invoice.invoiceId
       );
       await LegalNoticeService.dispatchDemandNotice({
         invoiceNumber: invoice.invoiceId,
@@ -185,7 +211,7 @@ export const ptpWatchdogWorker = new Worker(
         breachedPtpDate: invoice.ptpDate?.toISOString().split('T')[0],
         principalAmount: invoice.amount,
         curePeriodDays: 7,
-        paymentLink:linkUrl
+        paymentLink: linkResult.url,
       });
 
       return { status: 'ESCALATED_LEGAL_NOTICE_SENT', invoiceNumber: invoice.invoiceId };

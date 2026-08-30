@@ -22,7 +22,14 @@ const verifyWebhookSignature = (req, res, next) => {
         .createHmac('sha256', webhookSecret)
         .update(rawBody)
         .digest('hex');
-    if (signature !== expectedSignature && process.env.NODE_ENV !== 'test') {
+    const sigBuffer = Buffer.from(signature, 'utf8');
+    const expectedBuffer = Buffer.from(expectedSignature, 'utf8');
+    if (sigBuffer.length !== expectedBuffer.length) {
+        res.status(401).json({ error: 'Invalid webhook signature length' });
+        return;
+    }
+    const isValid = crypto_1.default.timingSafeEqual(sigBuffer, expectedBuffer);
+    if (!isValid) {
         res.status(401).json({ error: 'Invalid webhook signature' });
         return;
     }
@@ -31,24 +38,25 @@ const verifyWebhookSignature = (req, res, next) => {
 exports.verifyWebhookSignature = verifyWebhookSignature;
 const idempotencyGuard = async (req, res, next) => {
     try {
-        const paymentId = req.body?.payload?.payment?.entity?.id || req.body?.id;
-        const eventId = req.body?.account_id + ':' + (paymentId || Date.now());
+        const eventPayload = req.body;
+        const eventName = eventPayload?.event || 'generic_event';
+        const paymentId = eventPayload?.payload?.payment?.entity?.id || eventPayload?.id;
         if (!paymentId) {
             next();
             return;
         }
-        const lockKey = `lock:webhook:${paymentId}`;
-        // Set 24-hour TTL lock atomically
+        // Event-scoped atomic lock (e.g. lock:webhook:payment.captured:pay_12345)
+        const lockKey = `lock:webhook:${eventName}:${paymentId}`;
         const acquired = await redis_1.redisConnection.set(lockKey, 'PROCESSED', 'EX', 86400, 'NX');
         if (!acquired) {
-            // Duplicate delivery: Acknowledge HTTP 200 immediately and discard
-            res.status(200).json({ status: 'ignored', message: 'Duplicate webhook event dropped' });
+            // Duplicate event delivery: Discard duplicate and return HTTP 200
+            res.status(200).json({ status: 'ignored', message: `Duplicate ${eventName} event dropped` });
             return;
         }
         next();
     }
     catch (error) {
-        console.error('Idempotency check failed:', error);
+        console.error('Idempotency check error:', error);
         next();
     }
 };

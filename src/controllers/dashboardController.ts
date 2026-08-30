@@ -137,6 +137,18 @@ export async function renderDashboard(req: Request, res: Response) {
           routeCCount: {
             $sum: { $cond: [{ $eq: ['$status', 'TERMINAL_DLQ'] }, 1, 0] },
           },
+          routeCAmount: {
+            $sum: { $cond: [{ $eq: ['$assignedRoute', 'ROUTE_C'] }, '$amount', 0] },
+          },
+          exhaustedRouteACount: {
+            $sum: {
+              $cond: [
+                { $and: [{ $eq: ['$status', 'TERMINAL_DLQ'] }, { $eq: ['$assignedRoute', 'ROUTE_A'] }] },
+                1,
+                0,
+              ],
+            },
+          },
           scheduledRetryCount: {
             $sum: { $cond: [{ $eq: ['$status', 'SCHEDULED_RETRY'] }, 1, 0] },
           },
@@ -153,6 +165,8 @@ export async function renderDashboard(req: Request, res: Response) {
       totalCount: 0,
       recoveredCount: 0,
       routeCCount: 0,
+      routeCAmount: 0,
+      exhaustedRouteACount: 0,
       scheduledRetryCount: 0,
       dunningSentCount: 0,
     };
@@ -191,7 +205,7 @@ export async function renderDashboard(req: Request, res: Response) {
       ? ((grandTotalRecoveredPaise / grandTotalAtRiskPaise) * 100).toFixed(1)
       : '0.0';
 
-    const addressableAtRisk = grandTotalAtRiskPaise - (stats.routeCCount * 250000);
+    const addressableAtRisk = grandTotalAtRiskPaise - stats.routeCAmount;
     const aor = addressableAtRisk > 0
       ? ((grandTotalRecoveredPaise / addressableAtRisk) * 100).toFixed(1)
       : grossRecoveryRate;
@@ -250,6 +264,11 @@ export async function renderDashboard(req: Request, res: Response) {
         <p class="text-xs font-semibold text-slate-400 uppercase">Route C Penalties Saved</p>
         <p class="text-2xl font-bold text-purple-400 mt-1">${stats.routeCCount} Blocked</p>
         <p class="text-xs text-purple-400 mt-1 font-medium">100% Retries Suppressed</p>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl">
+        <p class="text-xs font-semibold text-slate-400 uppercase">Route A Unrecovered (DLQ)</p>
+        <p class="text-2xl font-bold text-red-400 mt-1">${stats.exhaustedRouteACount}</p>
+        <p class="text-xs text-slate-400 mt-1 font-medium">Exhausted all 3 retries, no recovery</p>
       </div>
     </div>
 
