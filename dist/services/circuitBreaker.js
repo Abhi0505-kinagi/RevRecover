@@ -6,32 +6,21 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.CircuitBreakerService = void 0;
 const redis_1 = require("../config/redis");
 const crypto_1 = __importDefault(require("crypto"));
-const FAILURE_THRESHOLD = 5; // Trip breaker if >= 5 failures occur
-const WINDOW_MS = 38 * 1000; // 38-second sliding window
+const FAILURE_THRESHOLD = 5;
+const WINDOW_MS = 38 * 1000;
 class CircuitBreakerService {
-    /**
-     * Records a failure using a Redis Sorted Set (Rolling Sliding Window)
-     */
     static async recordFailure(railKey) {
         const now = Date.now();
         const key = `breaker:sliding:${railKey}`;
         const windowStart = now - WINDOW_MS;
         const pipeline = redis_1.redisConnection.pipeline();
-        // 1. Evict timestamps older than 38 seconds
         pipeline.zremrangebyscore(key, 0, windowStart);
-        // 2. Add current failure timestamp
         pipeline.zadd(key, now, `${now}_${crypto_1.default.randomBytes(3).toString('hex')}`);
-        // 3. Count remaining failures in the current 38-second sliding window
         pipeline.zcard(key);
-        // 4. Set auto-cleanup TTL
         pipeline.expire(key, Math.ceil(WINDOW_MS / 1000) + 5);
         const results = await pipeline.exec();
-        const failCount = results?.[2]?.[1] || 0;
-        return failCount;
+        return results?.[2]?.[1] || 0;
     }
-    /**
-     * Evaluates real-time health across all payment rails
-     */
     static async getCheckoutRailStatus() {
         const rails = [
             'upi',
@@ -44,7 +33,6 @@ class CircuitBreakerService {
         ];
         const now = Date.now();
         const windowStart = now - WINDOW_MS;
-        const result = {};
         const pipeline = redis_1.redisConnection.pipeline();
         for (const rail of rails) {
             const key = `breaker:sliding:${rail}`;
@@ -52,24 +40,42 @@ class CircuitBreakerService {
             pipeline.zcard(key);
         }
         const execResults = await pipeline.exec();
+        const output = {};
         rails.forEach((rail, index) => {
-            // zcard result is at index * 2 + 1 in pipeline
             const failCount = execResults?.[index * 2 + 1]?.[1] || 0;
-            if (failCount >= FAILURE_THRESHOLD) {
-                result[rail] = {
+            const isDegraded = failCount >= FAILURE_THRESHOLD;
+            if (rail === 'upi') {
+                output[rail] = {
+                    status: 'HEALTHY',
+                    failCount,
+                    priorityRank: 1, // UPI always promoted to primary slot
+                    badge: '⚡ 99.8% Success Rate (Instant)',
+                };
+                return;
+            }
+            if (isDegraded) {
+                const bankName = rail.replace('netbanking_', '').toUpperCase();
+                output[rail] = {
                     status: 'DEGRADED',
                     failCount,
-                    recommendation: 'Bank server slow right now. Use UPI (Google Pay / PhonePe) for instant 10s checkout.',
+                    priorityRank: 99, // Demote to bottom of list
+                    badge: 'High Bank Latency',
+                    smartFallback: {
+                        suggestedRail: 'upi',
+                        action: 'AUTO_SWITCH_UPI',
+                        promptText: `${bankName} Netbanking has high network latency. Complete seamlessly using ${bankName} UPI instead?`,
+                    },
                 };
             }
             else {
-                result[rail] = {
+                output[rail] = {
                     status: 'HEALTHY',
                     failCount,
+                    priorityRank: 2,
                 };
             }
         });
-        return result;
+        return output;
     }
 }
 exports.CircuitBreakerService = CircuitBreakerService;

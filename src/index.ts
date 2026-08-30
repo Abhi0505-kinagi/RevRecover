@@ -29,6 +29,7 @@ app.use('/api/invoices', invoiceRoutes);
 app.use('/api/metrics', metricsRoutes);
 app.get('/dashboard', renderDashboard);
 app.get('/dashboard/seed', handleSeedData);
+app.use(express.static('public'));
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });

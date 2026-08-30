@@ -1,33 +1,34 @@
-import { Type, Schema } from '@google/genai';
-import { aiClient, isGeminiConfigured } from '../config/gemini';
+import { getGeminiClient, isGeminiConfigured } from '../config/gemini';
 import { Invoice } from '../models/Invoice';
 import { formatRazorpayAmount } from '../config/razorpay';
-const PtpExtractionSchema: Schema = {
-  type: Type.OBJECT,
+import { ptpWatchdogQueue } from '../queues/recoveryQueues';
+
+const PtpExtractionSchema = {
+  type: 'OBJECT',
   properties: {
     intent: {
-      type: Type.STRING,
+      type: 'STRING',
       description: 'PROMISE_TO_PAY | DISPUTE | ALREADY_PAID | REFUSAL | GENERAL_QUERY',
     },
     ptpDate: {
-      type: Type.STRING,
+      type: 'STRING',
       description: 'ISO 8601 Date string (YYYY-MM-DD) if detected, else empty string.',
     },
     confidenceScore: {
-      type: Type.NUMBER,
+      type: 'NUMBER',
       description: 'Score between 0.0 and 1.0',
     },
     aiSummary: {
-      type: Type.STRING,
+      type: 'STRING',
       description: 'Summary under 100 characters',
     },
     suggestedReply: {
-      type: Type.STRING,
+      type: 'STRING',
       description: 'Polite confirmation message',
     },
   },
   required: ['intent', 'confidenceScore', 'aiSummary', 'suggestedReply'],
-};
+} as const;
 
 export class PtpService {
   /**
@@ -89,7 +90,9 @@ export class PtpService {
     const todayIso = new Date().toISOString().split('T')[0];
     let parsed: any;
 
-    if (isGeminiConfigured()) {
+    const geminiClient = await getGeminiClient();
+
+    if (isGeminiConfigured() && geminiClient) {
       try {
         const prompt = `
           Current Reference Date: ${todayIso}
@@ -98,12 +101,12 @@ export class PtpService {
           Extract intent, ISO payment date, and generate a polite confirmation reply.
           `;
 
-        const response = await aiClient.models.generateContent({
+        const response = await geminiClient.models.generateContent({
           model: 'gemini-2.5-flash',
           contents: prompt,
           config: {
             responseMimeType: 'application/json',
-            responseSchema: PtpExtractionSchema,
+            responseSchema: PtpExtractionSchema as any,
             temperature: 0.1,
           },
         });
@@ -124,8 +127,14 @@ export class PtpService {
       invoice.ptpDate = hasDate ? new Date(parsed.ptpDate) : new Date(Date.now() + 7 * 86400000);
       invoice.ptpNotes = parsed.aiSummary || 'Customer committed to clear overdue balance.';
       await invoice.save();
-}
-
+       // Schedule a watchdog check for right after the promised date passes.
+      const delayMs = Math.max(0, invoice.ptpDate.getTime() - Date.now()) + 60000; // +1min grace
+      await ptpWatchdogQueue.add(
+        'check-ptp-breach',
+        { invoiceId: invoice._id.toString() },
+        { delay: delayMs }
+      );
+    }    
     return {
       invoiceId: invoice.invoiceId,
       updatedStatus: invoice.status,

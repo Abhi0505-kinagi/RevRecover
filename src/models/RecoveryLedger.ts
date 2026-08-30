@@ -27,6 +27,7 @@ export interface IRecoveryLedger extends Document {
   isDebitedRisk: boolean;
   recoveredAmount: number;
   paymentLinkUrl?: string;
+  recoveryOrderId?: string;
   promiseToPayDate?: Date;
   auditTrail: IAuditEntry[];
   createdAt: Date;
@@ -71,6 +72,7 @@ const RecoveryLedgerSchema = new Schema<IRecoveryLedger>(
     isDebitedRisk: { type: Boolean, default: false },
     recoveredAmount: { type: Number, default: 0 },
     paymentLinkUrl: { type: String },
+    recoveryOrderId: { type: String, index: true },
     promiseToPayDate: { type: Date },
     auditTrail: [AuditEntrySchema],
   },

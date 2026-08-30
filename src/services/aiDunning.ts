@@ -1,22 +1,22 @@
-import { Type, Schema } from '@google/genai';
-import { aiClient, isGeminiConfigured } from '../config/gemini';
+import { getGeminiClient, isGeminiConfigured } from '../config/gemini';
 import { razorpayClient } from '../config/razorpay';
 import { WhatsAppDispatcher } from './whatsappDispatcher';
 import { formatRazorpayAmount } from '../config/razorpay';
-const DunningSchema: Schema = {
-  type: Type.OBJECT,
+
+const DunningSchema = {
+  type: 'OBJECT',
   properties: {
     messageBody: {
-      type: Type.STRING,
+      type: 'STRING',
       description: 'Concise, empathetic explanation under 140 characters explaining the drop-off and offering 1-click retry.',
     },
     urgencyTone: {
-      type: Type.STRING,
+      type: 'STRING',
       description: 'EMPATHETIC | ACTION_ORIENTED | REASSURING',
     },
   },
   required: ['messageBody', 'urgencyTone'],
-};
+} as const;
 
 export class AiDunningService {
   public static sanitizeFirstName(nameOrEmail?: string): string {
@@ -31,19 +31,51 @@ export class AiDunningService {
       : '******';
   }
 
+  // public static async createRecoveryPaymentLink(
+  //   paymentId: string,
+  //   amount: number,
+  //   email?: string,
+  //   contact?: string,
+  //   invoiceId?: string,
+  //   originalPaymentId?: string
+  // ): Promise<string> {
+  //   try {
+  //     const link: any = await razorpayClient.paymentLink.create({
+  //       amount,
+  //       currency: 'INR',
+  //       accept_partial: false,
+  //       reference_id: `rec_${paymentId}_${Date.now()}`,
+  //       description: 'Instant 1-Click Payment Recovery via UPI / Cards',
+  //       customer: {
+  //         name: this.sanitizeFirstName(email),
+  //         email: email || 'customer@example.com',
+  //         contact: contact || '+919999999999',
+  //       },
+  //       notify: { sms: false, email: false },
+  //       reminder_enable: false,
+  //       //notes: invoiceId ? { invoiceId } : undefined,
+  //       notes: invoiceId ? { invoiceId } : originalPaymentId ? { originalPaymentId } : undefined,
+  //     });
+  //     return link.short_url;
+  //   } catch {
+  //     return `https://rzp.io/i/rec_${paymentId.slice(-8)}`;
+  //   }
+  // }
   public static async createRecoveryPaymentLink(
     paymentId: string,
     amount: number,
     email?: string,
-    contact?: string
-  ): Promise<string> {
+    contact?: string,
+    invoiceId?: string,
+    originalPaymentId?: string
+  ): Promise<{ url: string; orderId: string | null }> {
     try {
       const link: any = await razorpayClient.paymentLink.create({
-        amount,
+        amount: Math.round(amount),
         currency: 'INR',
         accept_partial: false,
-        reference_id: `rec_${paymentId}_${Date.now()}`,
-        description: 'Instant 1-Click Payment Recovery via UPI / Cards',
+        reference_id: paymentId, // Keep it clean and matching your primary identifier
+        description: 'Instant 1-Click Payment Recovery',
         customer: {
           name: this.sanitizeFirstName(email),
           email: email || 'customer@example.com',
@@ -51,10 +83,17 @@ export class AiDunningService {
         },
         notify: { sms: false, email: false },
         reminder_enable: false,
+        notes: invoiceId ? { invoiceId } : originalPaymentId ? { originalPaymentId } : undefined,
       });
-      return link.short_url;
-    } catch {
-      return `https://rzp.io/i/rec_${paymentId.slice(-8)}`;
+      if (!link || !link.short_url) {
+      throw new Error(`Razorpay returned empty short_url for paymentId: ${paymentId}`);
+      }
+      console.log(link)
+      return { url: link.short_url, orderId: link.order_id || null }; 
+    } catch (error: any) {
+      // Log the exact Razorpay API rejection reason to your terminal
+      console.error('❌ Razorpay Payment Link Generation Failed:', error?.error || error);
+      throw error; // Let the worker know it failed or handle it gracefully
     }
   }
 
@@ -71,7 +110,9 @@ export class AiDunningService {
     let messageBody = '';
 
     // Step 1: LLM Generation or Resilient Heuristic Fallback
-    if (isGeminiConfigured() && process.env.BENCHMARK_MODE !== 'true') {
+    const geminiClient = await getGeminiClient();
+
+    if (isGeminiConfigured() && geminiClient && process.env.BENCHMARK_MODE !== 'true') {
       try {
         const prompt = `
         Generate a zero-PII recovery message in conversational Hinglish.
@@ -85,12 +126,12 @@ export class AiDunningService {
         - Strict HSM template variable safety.
         `;
 
-        const response = await aiClient.models.generateContent({
+        const response = await geminiClient.models.generateContent({
           model: 'gemini-2.5-flash',
           contents: prompt,
           config: {
             responseMimeType: 'application/json',
-            responseSchema: DunningSchema,
+            responseSchema: DunningSchema as any,
             temperature: 0.2,
           },
         });

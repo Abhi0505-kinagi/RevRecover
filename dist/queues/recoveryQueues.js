@@ -1,22 +1,36 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.routeBWorker = exports.routeAWorker = exports.routeBQueue = exports.routeAQueue = void 0;
+exports.ptpWatchdogWorker = exports.ptpWatchdogQueue = exports.routeBWorker = exports.routeAWorker = exports.routeBQueue = exports.routeAQueue = void 0;
 const bullmq_1 = require("bullmq");
 const redis_1 = require("../config/redis");
 const RecoveryLedger_1 = require("../models/RecoveryLedger");
 const aiDunning_1 = require("../services/aiDunning");
 const triageMatrix_1 = require("../services/triageMatrix");
-// Define BullMQ Queues
-exports.routeAQueue = new bullmq_1.Queue('route-a-silent-retries', { connection: redis_1.redisConnection });
-exports.routeBQueue = new bullmq_1.Queue('route-b-agentic-dunning', { connection: redis_1.redisConnection });
-/**
- * Worker for Route A: Silent 1m -> 2m -> 5m 5XX Retries
- */
+const Invoice_1 = require("../models/Invoice");
+const legalNoticeService_1 = require("../services/legalNoticeService");
+const DEFAULT_QUEUE_CONFIG = {
+    connection: redis_1.redisConnection,
+    defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+            type: 'exponential',
+            delay: 2000,
+        },
+        removeOnComplete: 200,
+        removeOnFail: 1000,
+    },
+};
+exports.routeAQueue = new bullmq_1.Queue('route-a-silent-retries', DEFAULT_QUEUE_CONFIG);
+exports.routeBQueue = new bullmq_1.Queue('route-b-agentic-dunning', DEFAULT_QUEUE_CONFIG);
 exports.routeAWorker = new bullmq_1.Worker('route-a-silent-retries', async (job) => {
-    const { paymentId, amount, retryCount } = job.data;
-    console.log(`[Route A Worker] Processing Silent Retry for ${paymentId} (Attempt ${retryCount + 1}/3)`);
-    // Inquest: Check if captured in background
-    const isCaptured = await triageMatrix_1.TriageService.verifyLateAuthorization(paymentId);
+    const { paymentId, amount, retryCount = 0 } = job.data;
+    // succeeded on a retried order-level payment while this job was queued).
+    const existing = await RecoveryLedger_1.RecoveryLedger.findOne({ paymentId });
+    if (existing && (existing.status === 'RECOVERED' || existing.status === 'TERMINAL_DLQ')) {
+        return { status: 'SKIPPED_ALREADY_RESOLVED', currentStatus: existing.status };
+    }
+    // Guard: Check if payment already cleared via bank delayed capture
+    const isCaptured = await (0, triageMatrix_1.verifyLateAuthorization)(paymentId);
     if (isCaptured) {
         await RecoveryLedger_1.RecoveryLedger.findOneAndUpdate({ paymentId }, {
             status: 'RECOVERED',
@@ -31,24 +45,20 @@ exports.routeAWorker = new bullmq_1.Worker('route-a-silent-retries', async (job)
         });
         return { status: 'RECOVERED' };
     }
-    if (retryCount + 1 >= 3) {
-        // Sever recovery path after 3 attempts -> Route to DLQ
+    // Terminal DLQ transition after 3 scheduled intervals
+    const delays = process.env.BENCHMARK_FAST_RETRY === 'true' ? [2000, 4000, 8000] : [60000, 120000, 300000];
+    if (retryCount >= delays.length) {
         await RecoveryLedger_1.RecoveryLedger.findOneAndUpdate({ paymentId }, {
-            status: 'TERMINAL_DLQ',
-            retryCount: 3,
-            $push: {
-                auditTrail: {
-                    stage: 'TERMINAL_REVIEW',
-                    action: 'Exhausted 3 silent retries. Shifted to Terminal DLQ.',
-                    timestamp: new Date(),
-                },
-            },
+            status: "TERMINAL_DLQ",
+            retryCount,
+            $push: { auditTrail: { stage: "TERMINAL_REVIEW",
+                    action: 'Exhausted all 3 silent retries (1m, 2m, 5m). Moved to DLQ.',
+                    timestamp: new Date()
+                } }
         });
         return { status: 'TERMINAL_DLQ' };
     }
-    // Schedule next backoff attempt (60s, 120s, 300s)
-    const delays = [60000, 120000, 300000];
-    const nextDelay = delays[retryCount] || 300000;
+    const nextDelay = delays[retryCount];
     await RecoveryLedger_1.RecoveryLedger.findOneAndUpdate({ paymentId }, {
         retryCount: retryCount + 1,
         status: 'SCHEDULED_RETRY',
@@ -62,27 +72,88 @@ exports.routeAWorker = new bullmq_1.Worker('route-a-silent-retries', async (job)
     });
     await exports.routeAQueue.add('silent-retry-job', { paymentId, amount, retryCount: retryCount + 1 }, { delay: nextDelay });
 }, { connection: redis_1.redisConnection, concurrency: 5 });
-/**
- * Worker for Route B: Agentic Dunning & 1-Click UPI Links
- */
 exports.routeBWorker = new bullmq_1.Worker('route-b-agentic-dunning', async (job) => {
     const { paymentId, amount, errorReason, email, contact, isDebitedRisk } = job.data;
-    console.log(`[Route B Worker] Executing Dunning Flow for ${paymentId}`);
-    // Generate UPI Intent Link
-    const linkUrl = await aiDunning_1.AiDunningService.createRecoveryPaymentLink(paymentId, amount, email, contact);
-    // Generate Hinglish Outreach
-    const message = await aiDunning_1.AiDunningService.generateRecoveryMessage('Customer', amount, errorReason, linkUrl, isDebitedRisk);
+    const existing = await RecoveryLedger_1.RecoveryLedger.findOne({ paymentId });
+    if (existing && (existing.status === 'RECOVERED' || existing.status === 'TERMINAL_DLQ')) {
+        return { status: 'SKIPPED_ALREADY_RESOLVED', currentStatus: existing.status };
+    }
+    const isCaptured = await (0, triageMatrix_1.verifyLateAuthorization)(paymentId);
+    if (isCaptured) {
+        await RecoveryLedger_1.RecoveryLedger.findOneAndUpdate({ paymentId }, {
+            status: "RECOVERED",
+            recoveredAmount: amount,
+            $push: { auditTrail: {
+                    stage: "INQUEST",
+                    action: 'Payment already captured before dunning dispatch. Nudge suppressed.',
+                    timeStamp: new Date()
+                } }
+        });
+        return { status: 'SUPPRESSED_ALREADY_PAID' };
+    }
+    //const linkUrl = await AiDunningService.createRecoveryPaymentLink(paymentId, amount, email, contact);
+    // CORRECTED (Assigns directly to the outer scoped variable)
+    let linkUrl;
+    let linkResult;
+    try {
+        linkResult = await aiDunning_1.AiDunningService.createRecoveryPaymentLink(paymentId, amount, email, contact, undefined, paymentId);
+    }
+    catch (apiError) {
+        console.error('Worker failed to create payment link, aborting dunning dispatch.');
+        throw apiError;
+    }
+    const dunningResult = await aiDunning_1.AiDunningService.generateRecoveryMessage(email?.split('@')[0] || 'Customer', amount, errorReason, linkResult.url, isDebitedRisk, contact);
     await RecoveryLedger_1.RecoveryLedger.findOneAndUpdate({ paymentId }, {
         status: 'DUNNING_SENT',
-        paymentLinkUrl: linkUrl,
+        paymentLinkUrl: linkResult.url,
         $push: {
             auditTrail: {
                 stage: 'AGENTIC_DUNNING',
-                action: 'Dispatched 1-click UPI recovery nudge.',
-                details: { linkUrl, messageSnippet: message.text.substring(0, 80) },
+                action: `Dispatched ${dunningResult.templateId} via WhatsApp.`,
+                details: {
+                    paymentLinkUrl: linkResult.url,
+                    recoveryOrderId: linkResult.orderId,
+                    dispatchStatus: dunningResult.dispatchResult.status,
+                    messageId: dunningResult.dispatchResult.messageId,
+                    messagePreview: dunningResult.text.slice(0, 80),
+                },
                 timestamp: new Date(),
             },
         },
     });
-    return { status: 'DUNNING_SENT', linkUrl };
+    return { status: 'DUNNING_SENT', linkUrl: linkResult.url, templateId: dunningResult.templateId };
 }, { connection: redis_1.redisConnection, concurrency: 10 });
+exports.ptpWatchdogQueue = new bullmq_1.Queue('ptp-watchdog-queue', DEFAULT_QUEUE_CONFIG);
+exports.ptpWatchdogWorker = new bullmq_1.Worker('ptp-watchdog-queue', async (job) => {
+    const { invoiceId } = job.data;
+    const invoice = await Invoice_1.Invoice.findById(invoiceId);
+    if (!invoice)
+        return { status: 'INVOICE_NOT_FOUND' };
+    // Guard: If invoice is already paid, do nothing
+    if (invoice.status === 'PAID') {
+        return { status: 'ALREADY_PAID' };
+    }
+    // Check if PTP date has passed and payment is still unfulfilled
+    const isPtpBreached = invoice.status === 'PROMISE_TO_PAY' &&
+        invoice.ptpDate &&
+        new Date() > new Date(invoice.ptpDate);
+    if (isPtpBreached) {
+        // 1. Transition state
+        invoice.status = 'ESCALATED_LEGAL';
+        await invoice.save();
+        // 2. Dispatch Formal Legal Notice Email with Interest & Penalties
+        const linkResult = await aiDunning_1.AiDunningService.createRecoveryPaymentLink(invoice.invoiceId, invoice.amount, invoice.clientEmail, invoice.clientPhone, invoice.invoiceId);
+        await legalNoticeService_1.LegalNoticeService.dispatchDemandNotice({
+            invoiceNumber: invoice.invoiceId,
+            clientCompanyName: invoice.clientName,
+            clientEmail: invoice.clientEmail,
+            originalDueDate: invoice.dueDate.toISOString().split('T')[0],
+            breachedPtpDate: invoice.ptpDate?.toISOString().split('T')[0],
+            principalAmount: invoice.amount,
+            curePeriodDays: 7,
+            paymentLink: linkResult.url,
+        });
+        return { status: 'ESCALATED_LEGAL_NOTICE_SENT', invoiceNumber: invoice.invoiceId };
+    }
+    return { status: 'PTP_STILL_ACTIVE' };
+}, { connection: redis_1.redisConnection, concurrency: 5 });

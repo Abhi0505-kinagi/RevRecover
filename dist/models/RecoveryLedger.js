@@ -68,7 +68,10 @@ const RecoveryLedgerSchema = new mongoose_1.Schema({
     isDebitedRisk: { type: Boolean, default: false },
     recoveredAmount: { type: Number, default: 0 },
     paymentLinkUrl: { type: String },
+    recoveryOrderId: { type: String, index: true },
     promiseToPayDate: { type: Date },
     auditTrail: [AuditEntrySchema],
 }, { timestamps: true });
+RecoveryLedgerSchema.index({ status: 1, assignedRoute: 1 });
+RecoveryLedgerSchema.index({ createdAt: -1 });
 exports.RecoveryLedger = mongoose_1.default.model('RecoveryLedger', RecoveryLedgerSchema);
